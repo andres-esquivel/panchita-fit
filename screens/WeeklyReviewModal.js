@@ -48,9 +48,23 @@ El usuario completó ${daysCompleted} días esta semana${volumeDeltaPct !== 0 ? 
 Su objetivo para la próxima semana es: "${goal}"
 Responde con UNA sola frase corta (máximo 12 palabras), en español, sarcástica pero alentadora, sobre ese objetivo. Sin emojis. Sin comillas.`;
 
-  if (!GROQ_KEY) return null;
-
   try {
+    if (Platform.OS === 'web') {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 60,
+          temperature: 0.9,
+        }),
+      });
+      const json = await res.json();
+      return res.ok ? json.content?.trim() || null : null;
+    }
+
+    if (!GROQ_KEY) return null;
     const res = await fetch(GROQ_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },

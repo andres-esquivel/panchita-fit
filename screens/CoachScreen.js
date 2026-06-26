@@ -221,14 +221,24 @@ function localAnalyticsReply(ac) {
   return 'Vas estable, que es una forma elegante de decir que todavía podés apretar más. Sin ego lifting, criatura.';
 }
 
-async function askGroq(userMessage, ctx, history) {
-  if (!GROQ_API_KEY) return localCoachReply(userMessage, ctx);
+async function callPanchitaAI(messages, options = {}) {
+  if (Platform.OS === 'web') {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages,
+        max_tokens: options.max_tokens || 150,
+        temperature: options.temperature ?? 0.9,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Panchita API error');
+    return data.content?.trim() || '';
+  }
 
-  const messages = [
-    { role: 'system', content: buildSystemPrompt(ctx) },
-    ...history.slice(-6),
-    { role: 'user', content: userMessage },
-  ];
+  if (!GROQ_API_KEY) return null;
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -238,13 +248,24 @@ async function askGroq(userMessage, ctx, history) {
     body: JSON.stringify({
       model: GROQ_MODEL,
       messages,
-      max_tokens: 150,
-      temperature: 0.9,
+      max_tokens: options.max_tokens || 150,
+      temperature: options.temperature ?? 0.9,
     }),
   });
   if (!response.ok) throw new Error('Groq error: ' + response.status);
   const data = await response.json();
   return data.choices[0].message.content.trim();
+}
+
+async function askGroq(userMessage, ctx, history) {
+  const messages = [
+    { role: 'system', content: buildSystemPrompt(ctx) },
+    ...history.slice(-6),
+    { role: 'user', content: userMessage },
+  ];
+
+  const reply = await callPanchitaAI(messages, { max_tokens: 150, temperature: 0.9 });
+  return reply || localCoachReply(userMessage, ctx);
 }
 
 export default function CoachScreen({ route }) {
@@ -275,25 +296,13 @@ export default function CoachScreen({ route }) {
     setMood('idle');
     try {
       const ac = await buildAnalyticsContext();
-      if (!GROQ_API_KEY) {
-        addBotMessage(localAnalyticsReply(ac));
-        setMood('happy');
-        return;
-      }
       const prompt = buildAnalyticsPrompt(ac);
       const messages = [
         { role: 'system', content: buildSystemPrompt(ac) },
         { role: 'user', content: prompt },
       ];
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + GROQ_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: GROQ_MODEL, messages, max_tokens: 180, temperature: 0.85 }),
-      });
-      if (!response.ok) throw new Error('Groq error');
-      const data = await response.json();
-      const reply = data.choices[0].message.content.trim();
-      addBotMessage(reply);
+      const reply = await callPanchitaAI(messages, { max_tokens: 180, temperature: 0.85 });
+      addBotMessage(reply || localAnalyticsReply(ac));
       setMood('happy');
     } catch (e) {
       addBotMessage('No pude analizar tu historial ahora. Revisá tu conexión y volvé a intentarlo. Mientras tanto, comé proteína.');
