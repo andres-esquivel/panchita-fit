@@ -1,0 +1,26 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+.DS_Store
+npm-debug.*
+ios/
+android/
+
+# Firebase credentials
+google-services.json
+GoogleService-Info.plist
+
+# Env
+.env
+.env.local
+
+# API keys and Firebase config (keep local only)
+config.js
+config/firebase.js

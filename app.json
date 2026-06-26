@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "PanchitaFit",
+    "slug": "panchita-fit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0a1e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.panchitafit.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0a1e"
+      },
+      "package": "com.panchitafit.app"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
