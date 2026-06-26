@@ -421,9 +421,21 @@ export default function CoachScreen({ route }) {
           )}
         </ScrollView>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.suggestScroll}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={s.suggestScroll}
+          contentContainerStyle={s.suggestContent}
+          keyboardShouldPersistTaps="handled"
+        >
           {SUGGESTIONS.map((sg, i) => (
-            <TouchableOpacity key={i} style={s.suggestChip} onPress={() => sendMessage(sg)} disabled={loading}>
+            <TouchableOpacity
+              key={i}
+              style={[s.suggestChip, loading && s.suggestChipDisabled]}
+              onPress={() => sendMessage(sg)}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
               <Text style={s.suggestText}>{sg}</Text>
             </TouchableOpacity>
           ))}
@@ -436,16 +448,25 @@ export default function CoachScreen({ route }) {
             onChangeText={setInput}
             placeholder="Preguntale algo a Panchita..."
             placeholderTextColor={colors.gray}
-            multiline
-            onSubmitEditing={() => sendMessage(input)}
+            multiline={Platform.OS !== 'web'}
+            blurOnSubmit={Platform.OS === 'web'}
+            returnKeyType="send"
+            onSubmitEditing={() => {
+              if (Platform.OS === 'web') sendMessage(input);
+            }}
             editable={!loading}
           />
           <TouchableOpacity
             style={[s.sendBtn, (!input.trim() || loading) && s.sendBtnDisabled]}
             onPress={() => sendMessage(input)}
             disabled={!input.trim() || loading}
+            activeOpacity={0.85}
           >
-            <Text style={s.sendBtnText}>→</Text>
+            {loading ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={s.sendBtnText}>Enviar</Text>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -476,13 +497,15 @@ function createStyles(colors) {
     bubbleTextBot:    { color: colors.white },
     bubbleTextUser:   { color: '#ffffff' },
     typingBubble:     { paddingVertical: 14, paddingHorizontal: 20 },
-    suggestScroll:    { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10, flexGrow: 0 },
+    suggestScroll:    { paddingTop: 8, paddingBottom: 10, flexGrow: 0 },
+    suggestContent:   { paddingHorizontal: 16, alignItems: 'center' },
     suggestChip:      { backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, borderWidth: 1, borderColor: colors.purpleDim },
+    suggestChipDisabled:{ opacity: 0.55 },
     suggestText:      { fontSize: 13, color: colors.purpleLight },
-    inputRow:         { flexDirection: 'row', padding: 12, gap: 10, alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: colors.purpleDim },
-    input:            { flex: 1, backgroundColor: colors.bgInput, borderRadius: RADIUS.lg, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: colors.white, maxHeight: 100, borderWidth: 1, borderColor: colors.purpleDim },
-    sendBtn:          { backgroundColor: colors.purple, width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-    sendBtnDisabled:  { backgroundColor: colors.purpleDim },
-    sendBtnText:      { color: '#ffffff', fontSize: 20, fontWeight: '700' },
+    inputRow:         { flexDirection: 'row', padding: 12, gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.purpleDim },
+    input:            { flex: 1, minHeight: 46, backgroundColor: colors.bgInput, borderRadius: RADIUS.lg, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: colors.white, maxHeight: 88, borderWidth: 1, borderColor: colors.purpleDim },
+    sendBtn:          { backgroundColor: colors.purple, minWidth: 82, height: 46, borderRadius: RADIUS.full, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+    sendBtnDisabled:  { backgroundColor: colors.purpleDim, opacity: 0.65 },
+    sendBtnText:      { color: '#ffffff', fontSize: 14, fontWeight: '800' },
   });
 }
