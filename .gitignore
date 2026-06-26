@@ -1,6 +1,6 @@
 node_modules/
 .expo/
-dist/
+# dist/ se sube porque el web build se genera localmente para Vercel
 web-build/
 *.jks
 *.p8

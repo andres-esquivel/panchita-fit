@@ -181,7 +181,49 @@ REGLAS para este análisis:
   return prompt;
 }
 
+function localCoachReply(userMessage, ctx) {
+  const msg = userMessage.toLowerCase();
+  const days = ctx?.daysSinceLastWorkout;
+  if (msg.includes('dolor') || msg.includes('lesion') || msg.includes('lesión')) {
+    return 'Dolor agudo no se negocia: bajá intensidad y considerá fisio o médico si persiste. Panchita se burla del ego lifting, no de las lesiones.';
+  }
+  if (msg.includes('esteroide') || msg.includes('inyectar') || msg.includes('ciclo')) {
+    return 'Con esteroides no improvisés: hablalo con profesionales de salud y entendé riesgos reales. Tu hígado no es accesorio de gym.';
+  }
+  if (msg.includes('prote')) {
+    return 'Priorizá proteína diaria, sueño y constancia antes de comprar polvos mágicos. La proteína funciona mejor cuando la tomás, no cuando la contemplás.';
+  }
+  if (msg.includes('progreso') || msg.includes('como voy') || msg.includes('cómo voy')) {
+    if (days === null) return 'Todavía no tengo suficiente historial para juzgarte con datos. Entrená primero, luego te destruyo con estadísticas.';
+    if (days > 2) return `${days} días sin entrenar. El progreso está esperando sentado, y ya se le durmió la pierna.`;
+    return `Vas con ${ctx?.totalSessions || 0} sesiones registradas. No es Olimpia, pero tampoco es sofá profesional.`;
+  }
+  if (msg.includes('qué entreno') || msg.includes('que entreno')) {
+    return 'Si no entrenaste pierna hace rato, ya sabés la respuesta incómoda. Si sí, hacé torso o técnica; el ego se queda en recepción.';
+  }
+  return 'Te leo, pero la IA online está desactivada en esta versión web para no filtrar keys. Consejo gratis: técnica limpia, progresión lenta y proteína; revolucionario, lo sé.';
+}
+
+function localAnalyticsReply(ac) {
+  if (!ac) return 'No tengo datos suficientes para analizarte. Panchita no inventa estadísticas; eso déjaselo a influencers con trípode.';
+  if (ac.daysSinceLast != null && ac.daysSinceLast > 2) {
+    return `${ac.daysSinceLast} días sin entrenar. El gimnasio preguntó por vos y yo fingí que estabas en descarga.`;
+  }
+  if (ac.streak >= 3) {
+    return `${ac.streak} días de racha. Casi me emociono, pero todavía tengo estándares.`;
+  }
+  if (ac.bestProg?.name) {
+    return `Tu mejor avance fue ${ac.bestProg.name}: +${ac.bestProg.delta} kg esta semana. Milagro: la barra sí se movió.`;
+  }
+  if (ac.neglectedMuscles?.length) {
+    return `Tenés abandonado ${ac.neglectedMuscles[0].name}. Ese músculo ya está armando sindicato.`;
+  }
+  return 'Vas estable, que es una forma elegante de decir que todavía podés apretar más. Sin ego lifting, criatura.';
+}
+
 async function askGroq(userMessage, ctx, history) {
+  if (!GROQ_API_KEY) return localCoachReply(userMessage, ctx);
+
   const messages = [
     { role: 'system', content: buildSystemPrompt(ctx) },
     ...history.slice(-6),
@@ -233,6 +275,11 @@ export default function CoachScreen({ route }) {
     setMood('idle');
     try {
       const ac = await buildAnalyticsContext();
+      if (!GROQ_API_KEY) {
+        addBotMessage(localAnalyticsReply(ac));
+        setMood('happy');
+        return;
+      }
       const prompt = buildAnalyticsPrompt(ac);
       const messages = [
         { role: 'system', content: buildSystemPrompt(ac) },

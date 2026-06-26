@@ -48,6 +48,8 @@ El usuario completó ${daysCompleted} días esta semana${volumeDeltaPct !== 0 ? 
 Su objetivo para la próxima semana es: "${goal}"
 Responde con UNA sola frase corta (máximo 12 palabras), en español, sarcástica pero alentadora, sobre ese objetivo. Sin emojis. Sin comillas.`;
 
+  if (!GROQ_KEY) return null;
+
   try {
     const res = await fetch(GROQ_URL, {
       method: 'POST',
