@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
-  TouchableOpacity, TextInput, Modal, Alert, Animated,
+  TouchableOpacity, TextInput, Modal, Alert, Animated, Keyboard, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
@@ -133,6 +133,8 @@ export default function WorkoutScreen({ navigation }) {
   const [showCreateModal, setShowCreateModal]   = useState(false);
   const [newRoutineName, setNewRoutineName]     = useState('');
   const [newExercises, setNewExercises]         = useState(['', '', '']);
+  const [createError, setCreateError]           = useState('');
+  const [creatingRoutine, setCreatingRoutine]   = useState(false);
 
   // Modal recomendación Panchita
   const [showRecommend, setShowRecommend]       = useState(false);
@@ -279,34 +281,58 @@ export default function WorkoutScreen({ navigation }) {
   function openCreateModal() {
     setNewRoutineName('');
     setNewExercises(['', '', '']);
+    setCreateError('');
+    setCreatingRoutine(false);
     setShowCreateModal(true);
   }
 
+  function closeCreateModal() {
+    Keyboard.dismiss();
+    setShowCreateModal(false);
+    setCreateError('');
+    setCreatingRoutine(false);
+  }
+
   async function saveNewRoutine() {
+    if (creatingRoutine) return;
+    Keyboard.dismiss();
+    setCreateError('');
+
     const trimmedName = newRoutineName.trim();
     if (!trimmedName) {
-      Alert.alert('Panchita dice:', 'La rutina necesita un nombre. Al menos eso.');
+      setCreateError('La rutina necesita un nombre. Al menos eso.');
       return;
     }
+
     const exercises = newExercises.map(e => e.trim()).filter(Boolean);
     if (exercises.length === 0) {
-      Alert.alert('Panchita dice:', 'Agregá al menos un ejercicio. No vas a entrenar el aire.');
+      setCreateError('Agregá al menos un ejercicio. No vas a entrenar el aire.');
       return;
     }
-    const routine = {
-      id: `custom_${Date.now()}`,
-      name: trimmedName,
-      day: trimmedName,
-      exercises,
-      isCustom: true,
-      createdAt: new Date().toISOString(),
-    };
-    await saveCustomRoutine(routine);
-    const updated = await getCustomRoutines();
-    setCustomRoutines(updated);
-    setShowCreateModal(false);
-    setMode('custom');
-    await selectWorkout(routine);
+
+    setCreatingRoutine(true);
+    try {
+      const routine = {
+        id: `custom_${Date.now()}`,
+        name: trimmedName,
+        day: trimmedName,
+        exercises,
+        isCustom: true,
+        createdAt: new Date().toISOString(),
+      };
+      await saveCustomRoutine(routine);
+      const updated = await getCustomRoutines();
+      setCustomRoutines(updated);
+      setMode('custom');
+      setShowCreateModal(false);
+      setCreateError('');
+      await selectWorkout(routine);
+    } catch (error) {
+      console.error('saveNewRoutine error:', error);
+      setCreateError('No pude guardar la rutina. Revisá conexión/sesión e intentá otra vez.');
+    } finally {
+      setCreatingRoutine(false);
+    }
   }
 
   function addExerciseField() {
@@ -419,7 +445,7 @@ export default function WorkoutScreen({ navigation }) {
       </Modal>
 
       {/* ── Modal: crear rutina ── */}
-      <Modal visible={showCreateModal} transparent animationType="slide">
+      <Modal visible={showCreateModal} transparent animationType="slide" onRequestClose={closeCreateModal}>
         <View style={s.modalOverlay}>
           <View style={[s.modalCard, { padding: 20, width: '92%', maxHeight: '85%' }]}>
             <Text style={s.modalTitle}>Nueva rutina</Text>
@@ -428,10 +454,11 @@ export default function WorkoutScreen({ navigation }) {
               placeholder="Nombre de la rutina (ej. Pecho + Tríceps)"
               placeholderTextColor={colors.gray}
               value={newRoutineName}
-              onChangeText={setNewRoutineName}
+              onChangeText={v => { setNewRoutineName(v); if (createError) setCreateError(''); }}
+              returnKeyType="next"
             />
             <Text style={[s.createLabel, { marginBottom: 8 }]}>Ejercicios</Text>
-            <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ maxHeight: 300, alignSelf: 'stretch' }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {newExercises.map((ex, i) => (
                 <View key={i} style={s.createExRow}>
                   <TextInput
@@ -439,7 +466,8 @@ export default function WorkoutScreen({ navigation }) {
                     placeholder={`Ejercicio ${i + 1}`}
                     placeholderTextColor={colors.gray}
                     value={ex}
-                    onChangeText={v => updateExerciseField(i, v)}
+                    onChangeText={v => { updateExerciseField(i, v); if (createError) setCreateError(''); }}
+                    returnKeyType="next"
                   />
                   {newExercises.length > 1 && (
                     <TouchableOpacity onPress={() => removeExerciseField(i)} style={s.createRemoveBtn}>
@@ -452,12 +480,17 @@ export default function WorkoutScreen({ navigation }) {
                 <Text style={s.addExTxt}>+ Agregar ejercicio</Text>
               </TouchableOpacity>
             </ScrollView>
+            {createError ? <Text style={s.createError}>{createError}</Text> : null}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <TouchableOpacity style={[s.createBtn, { flex: 1, backgroundColor: colors.purpleDim }]} onPress={() => setShowCreateModal(false)}>
+              <TouchableOpacity style={[s.createBtn, { flex: 1, backgroundColor: colors.purpleDim }]} onPress={closeCreateModal} disabled={creatingRoutine}>
                 <Text style={[s.createBtnTxt, { color: colors.grayLight }]}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[s.createBtn, { flex: 1, backgroundColor: colors.purple }]} onPress={saveNewRoutine}>
-                <Text style={[s.createBtnTxt, { color: '#fff' }]}>Guardar</Text>
+              <TouchableOpacity style={[s.createBtn, { flex: 1, backgroundColor: colors.purple }, creatingRoutine && { opacity: 0.65 }]} onPress={saveNewRoutine} disabled={creatingRoutine}>
+                {creatingRoutine ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[s.createBtnTxt, { color: '#fff' }]}>Guardar</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -757,7 +790,8 @@ function createStyles(colors) {
     createRemoveTxt:   { color: colors.gray, fontSize: 12 },
     addExBtn:          { paddingVertical: 10, alignItems: 'center' },
     addExTxt:          { color: colors.purpleLight, fontWeight: '600', fontSize: 13 },
-    createBtn:         { borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center' },
+    createBtn:         { borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center', minHeight: 46, justifyContent: 'center' },
     createBtnTxt:      { fontWeight: '700', fontSize: 15 },
+    createError:       { color: colors.danger || '#ef4444', fontSize: 13, lineHeight: 18, textAlign: 'center', alignSelf: 'stretch', marginTop: 8 },
   });
 }
