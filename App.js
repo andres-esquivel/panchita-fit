@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, TouchableOpacity, Text, Modal, StyleSheet } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,13 +15,9 @@ import OnboardScreen  from './screens/OnboardScreen';
 import LoginScreen    from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import WeeklyReviewModal from './screens/WeeklyReviewModal';
-import PanchitaEditor    from './screens/PanchitaEditor';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { isOnboarded, shouldShowWeeklyReview } from './storage';
 import { IconHome, IconDumbbell, IconPaw, IconChart, IconSettings } from './components/icons';
-
-// Cambiar a false antes de publicar
-const DEV_MODE = true;
 
 const Tab = createBottomTabNavigator();
 
@@ -197,9 +193,6 @@ function RootApp() {
   }
 
   // Main app
-  // DEBUG
-  console.log('TYPES:', typeof SafeAreaProvider, typeof AppNavigator, typeof WeeklyReviewModal, typeof PanchitaEditor, typeof NavigationContainer);
-  
   return (
     <SafeAreaProvider>
       <AppNavigator />
@@ -211,39 +204,9 @@ function RootApp() {
           onClose={() => setShowWeeklyReview(false)}
         />
       )}
-      {DEV_MODE && (
-        <TouchableOpacity
-          style={devStyles.fab}
-          onPress={() => setShowEditor(true)}
-          activeOpacity={0.8}
-        >
-          <Text style={devStyles.fabTxt}>?</Text>
-        </TouchableOpacity>
-      )}
-      {DEV_MODE && (
-        <Modal
-          visible={showEditor}
-          animationType='slide'
-          presentationStyle='fullScreen'
-          onRequestClose={() => setShowEditor(false)}
-        >
-          <PanchitaEditor onClose={() => setShowEditor(false)} />
-        </Modal>
-      )}
     </SafeAreaProvider>
   );
 }
-
-const devStyles = StyleSheet.create({
-  fab: {
-    position: 'absolute', bottom: 90, right: 16,
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#7c3aed', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4, shadowRadius: 4, elevation: 6,
-  },
-  fabTxt: { fontSize: 20 },
-});
 
 export default function App() {
   return (
