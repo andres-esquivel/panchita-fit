@@ -155,24 +155,31 @@ export default function WorkoutScreen({ navigation }) {
 
   async function selectWorkout(workout) {
     setSelectedWorkout(workout);
-    const last = await getLastLog(workout.id);
-    setLastLog(last);
-    const logs = await getLogs();
-    const todayLog = logs.find(l => l.date === TODAY && l.workoutId === workout.id);
-    if (todayLog) {
-      setLog(todayLog);
-      setCompleted(todayLog.completed);
-    } else {
-      setLog({
-        date: TODAY,
-        workoutId: workout.id,
-        completed: false,
-        exercises: workout.exercises.map(name => ({
-          name,
-          sets: [{ reps: '', weight: '' }],
-        })),
-      });
-      setCompleted(false);
+    const blankLog = {
+      date: TODAY,
+      workoutId: workout.id,
+      completed: false,
+      exercises: workout.exercises.map(name => ({
+        name,
+        sets: [{ reps: '', weight: '' }],
+      })),
+    };
+    setLog(blankLog);
+    setCompleted(false);
+
+    try {
+      const logs = await getLogs();
+      const last = logs.filter(l => l.workoutId === workout.id && l.completed)
+        .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+      setLastLog(last);
+      const todayLog = logs.find(l => l.date === TODAY && l.workoutId === workout.id);
+      if (todayLog) {
+        setLog(todayLog);
+        setCompleted(todayLog.completed);
+      }
+    } catch (error) {
+      console.warn('selectWorkout logs load failed:', error);
+      setLastLog(null);
     }
   }
 
@@ -321,12 +328,15 @@ export default function WorkoutScreen({ navigation }) {
         createdAt: new Date().toISOString(),
       };
       await saveCustomRoutine(routine);
-      const updated = await getCustomRoutines();
-      setCustomRoutines(updated);
+      setCustomRoutines(prev => {
+        const withoutOld = prev.filter(item => item.id !== routine.id);
+        return [routine, ...withoutOld];
+      });
       setMode('custom');
       setShowCreateModal(false);
       setCreateError('');
-      await selectWorkout(routine);
+      setCreatingRoutine(false);
+      selectWorkout(routine).catch(error => console.warn('select custom routine failed:', error));
     } catch (error) {
       console.error('saveNewRoutine error:', error);
       setCreateError('No pude guardar la rutina. Revisá conexión/sesión e intentá otra vez.');

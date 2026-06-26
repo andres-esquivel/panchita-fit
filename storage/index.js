@@ -14,9 +14,47 @@ function uid() {
 function userDoc(path)  { return doc(db, 'users', uid(), ...path.split('/')); }
 function userCol(path)  { return collection(db, 'users', uid(), ...path.split('/')); }
 
+function withTimeout(promise, ms = 6000, label = 'operacion') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timeout`)), ms);
+    }),
+  ]);
+}
+
 async function getAll(colPath) {
   const snap = await getDocs(userCol(colPath));
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+function localKey(name) {
+  return `panchita_${uid()}_${name}`;
+}
+
+async function getLocalList(name) {
+  try {
+    const raw = await AsyncStorage.getItem(localKey(name));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function setLocalList(name, items) {
+  try {
+    await AsyncStorage.setItem(localKey(name), JSON.stringify(items));
+  } catch (error) {
+    console.warn('AsyncStorage save failed:', error);
+  }
+}
+
+function mergeById(primary = [], secondary = []) {
+  const map = new Map();
+  [...secondary, ...primary].forEach(item => {
+    if (item?.id) map.set(item.id, item);
+  });
+  return [...map.values()];
 }
 
 // ─── Onboarding (device-local) ─────────────────────────────
@@ -60,22 +98,46 @@ export async function saveWorkouts(workouts) {
 
 // ─── Rutinas custom ────────────────────────────────────────
 export async function getCustomRoutines() {
-  try { return await getAll('customRoutines'); }
-  catch { return []; }
+  const local = await getLocalList('customRoutines');
+  try {
+    const remote = await withTimeout(getAll('customRoutines'), 3500, 'customRoutines');
+    const merged = mergeById(remote, local);
+    await setLocalList('customRoutines', merged);
+    return merged;
+  } catch {
+    return local;
+  }
 }
 
 export async function saveCustomRoutine(routine) {
   const id = routine.id || String(Date.now());
-  await setDoc(doc(userCol('customRoutines'), id), { ...routine, id }, { merge: true });
+  const normalized = { ...routine, id };
+
+  // Primero guardamos local para que móvil nunca quede cargando si Firebase tarda.
+  const local = await getLocalList('customRoutines');
+  const updated = mergeById([normalized], local);
+  await setLocalList('customRoutines', updated);
+
+  // Luego sincronizamos en segundo plano. Si Firebase se duerme, la app sigue usable.
+  withTimeout(
+    setDoc(doc(userCol('customRoutines'), id), normalized, { merge: true }),
+    6500,
+    'saveCustomRoutine'
+  ).catch(error => console.warn('Remote custom routine sync failed:', error));
+
+  return normalized;
 }
 
 export async function deleteCustomRoutine(id) {
-  await deleteDoc(doc(userCol('customRoutines'), id));
+  const local = await getLocalList('customRoutines');
+  await setLocalList('customRoutines', local.filter(item => item.id !== id));
+  withTimeout(deleteDoc(doc(userCol('customRoutines'), id)), 6500, 'deleteCustomRoutine')
+    .catch(error => console.warn('Remote custom routine delete failed:', error));
 }
 
 // ─── Logs de sesiones ──────────────────────────────────────
 export async function getLogs() {
-  try { return await getAll('logs'); }
+  try { return await withTimeout(getAll('logs'), 5000, 'logs'); }
   catch { return []; }
 }
 
