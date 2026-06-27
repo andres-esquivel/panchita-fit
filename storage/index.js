@@ -137,13 +137,34 @@ export async function deleteCustomRoutine(id) {
 
 // ─── Logs de sesiones ──────────────────────────────────────
 export async function getLogs() {
-  try { return await withTimeout(getAll('logs'), 5000, 'logs'); }
-  catch { return []; }
+  const local = await getLocalList('logs');
+  try {
+    const remote = await withTimeout(getAll('logs'), 5000, 'logs');
+    const merged = mergeById(remote, local);
+    await setLocalList('logs', merged);
+    return merged;
+  } catch {
+    return local;
+  }
 }
 
 export async function saveLog(log) {
   const id = `${log.date}_${log.workoutId || 'session'}`;
-  await setDoc(doc(userCol('logs'), id), { ...log, id }, { merge: true });
+  const normalized = { ...log, id, updatedAt: new Date().toISOString() };
+
+  // Local primero: las reps quedan guardadas aunque Firebase tarde o el móvil pierda conexión.
+  const local = await getLocalList('logs');
+  const updated = mergeById([normalized], local);
+  await setLocalList('logs', updated);
+
+  // Sync remoto en segundo plano. Panchita no espera al WiFi para contar reps.
+  withTimeout(
+    setDoc(doc(userCol('logs'), id), normalized, { merge: true }),
+    6500,
+    'saveLog'
+  ).catch(error => console.warn('Remote log sync failed:', error));
+
+  return normalized;
 }
 
 export async function getLastLog(workoutId) {

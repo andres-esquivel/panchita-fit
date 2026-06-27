@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   TouchableOpacity, TextInput, Modal, Alert, Animated, Keyboard, ActivityIndicator,
@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import {
-  getWorkouts, getLogs, saveLog, getLastLog,
+  getWorkouts, getLogs, saveLog,
   getCustomRoutines, saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity,
 } from '../storage';
@@ -78,6 +78,35 @@ const PANCHITA_RECOMMEND_PHRASES = {
     : `${days} día${days > 1 ? 's' : ''} de brazos en reposo. El espejo ya pregunta.`,
 };
 
+function logHasProgress(log) {
+  if (!log) return false;
+  if (log.completed) return true;
+  return (log.exercises || []).some(ex =>
+    (ex.sets || []).some(st =>
+      String(st.reps || '').trim() ||
+      String(st.weight || '').trim() ||
+      !!st.done
+    )
+  );
+}
+
+function logSignature(log) {
+  if (!log) return '';
+  return JSON.stringify({
+    date: log.date,
+    workoutId: log.workoutId,
+    completed: !!log.completed,
+    exercises: (log.exercises || []).map(ex => ({
+      name: ex.name,
+      sets: (ex.sets || []).map(st => ({
+        reps: String(st.reps || ''),
+        weight: String(st.weight || ''),
+        done: !!st.done,
+      })),
+    })),
+  });
+}
+
 function buildRecommendation(muscleActivity) {
   // Elegir el grupo que más tiempo lleva sin entrenarse
   let worstGroup = 'legs';
@@ -116,6 +145,7 @@ export default function WorkoutScreen({ navigation }) {
   const [log, setLog]                         = useState(null);
   const [lastLog, setLastLog]                 = useState(null);
   const [saving, setSaving]                   = useState(false);
+  const [autoSaveState, setAutoSaveState]     = useState('idle'); // idle | saving | saved | error
   const [completed, setCompleted]             = useState(false);
 
   // Modo A / B
@@ -141,7 +171,44 @@ export default function WorkoutScreen({ navigation }) {
   const [recommendation, setRecommendation]     = useState(null);
   const [loadingRecommend, setLoadingRecommend] = useState(false);
 
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedLogRef  = useRef('');
+
   useFocusEffect(useCallback(() => { loadAll(); }, []));
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!log || !selectedWorkout || completed) {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      return;
+    }
+    if (!logHasProgress(log)) {
+      setAutoSaveState('idle');
+      return;
+    }
+
+    const signature = logSignature(log);
+    if (signature === lastSavedLogRef.current) return;
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    setAutoSaveState('saving');
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await saveLog(log);
+        lastSavedLogRef.current = signature;
+        setAutoSaveState('saved');
+      } catch (error) {
+        console.warn('autosave workout failed:', error);
+        setAutoSaveState('error');
+      }
+    }, 900);
+  }, [log, selectedWorkout?.id, completed]);
 
   async function loadAll() {
     const [base, custom] = await Promise.all([getWorkouts(), getCustomRoutines()]);
@@ -166,6 +233,8 @@ export default function WorkoutScreen({ navigation }) {
     };
     setLog(blankLog);
     setCompleted(false);
+    lastSavedLogRef.current = '';
+    setAutoSaveState('idle');
 
     try {
       const logs = await getLogs();
@@ -176,6 +245,8 @@ export default function WorkoutScreen({ navigation }) {
       if (todayLog) {
         setLog(todayLog);
         setCompleted(todayLog.completed);
+        lastSavedLogRef.current = logSignature(todayLog);
+        setAutoSaveState('saved');
       }
     } catch (error) {
       console.warn('selectWorkout logs load failed:', error);
@@ -193,14 +264,22 @@ export default function WorkoutScreen({ navigation }) {
   }
 
   // ─── Set management ──────────────────────────────────────
+  function normalizeSetValue(field, value) {
+    const clean = String(value || '').replace(',', '.').replace(/[^0-9.]/g, '');
+    const parts = clean.split('.');
+    if (field === 'reps') return parts[0] || '';
+    return parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : clean;
+  }
+
   function updateSet(exIdx, setIdx, field, value) {
+    const nextValue = normalizeSetValue(field, value);
     setLog(prev => ({
       ...prev,
       exercises: prev.exercises.map((ex, ei) =>
         ei !== exIdx ? ex : {
           ...ex,
           sets: ex.sets.map((st, si) =>
-            si !== setIdx ? st : { ...st, [field]: value }
+            si !== setIdx ? st : { ...st, [field]: nextValue, done: field === 'reps' || field === 'weight' ? false : st.done }
           ),
         }
       ),
@@ -250,9 +329,26 @@ export default function WorkoutScreen({ navigation }) {
     setLog(prev => ({
       ...prev,
       exercises: prev.exercises.map((ex, ei) => {
-        if (ei !== exIdx || ex.sets.length <= 1) return ex;
+        if (ei !== exIdx) return ex;
+        if (ex.sets.length <= 1) {
+          return { ...ex, sets: [{ reps: '', weight: '', done: false }] };
+        }
         return { ...ex, sets: ex.sets.filter((_, si) => si !== setIdx) };
       }),
+    }));
+  }
+
+  function clearSet(exIdx, setIdx) {
+    setLog(prev => ({
+      ...prev,
+      exercises: prev.exercises.map((ex, ei) =>
+        ei !== exIdx ? ex : {
+          ...ex,
+          sets: ex.sets.map((st, si) =>
+            si !== setIdx ? st : { reps: '', weight: '', done: false }
+          ),
+        }
+      ),
     }));
   }
 
@@ -260,22 +356,43 @@ export default function WorkoutScreen({ navigation }) {
   async function saveProgress() {
     if (!log) return;
     setSaving(true);
-    await saveLog(log);
-    setSaving(false);
-    setReactionPhrase('Progreso guardado. Igual no te lo creo hasta que termines.');
-    setPanchitaReaction(true);
-    setTimeout(() => setPanchitaReaction(false), 2500);
+    try {
+      await saveLog(log);
+      lastSavedLogRef.current = logSignature(log);
+      setAutoSaveState('saved');
+      setReactionPhrase('Progreso guardado. Igual no te lo creo hasta que termines.');
+      setPanchitaReaction(true);
+      setTimeout(() => setPanchitaReaction(false), 2500);
+    } catch (error) {
+      console.warn('manual save failed:', error);
+      setAutoSaveState('error');
+      Alert.alert('Panchita dice:', 'No pude guardar. Intentá otra vez antes de que finjamos que esas reps existieron.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function finishWorkout() {
     if (!log) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     const finishedLog = { ...log, completed: true };
-    await saveLog(finishedLog);
-    setLog(finishedLog);
-    setCompleted(true);
-    const phrase = COMPLETION_PHRASES[Math.floor(Math.random() * COMPLETION_PHRASES.length)];
-    setCompletionPhrase(phrase);
-    setShowCompletion(true);
+    setSaving(true);
+    try {
+      await saveLog(finishedLog);
+      lastSavedLogRef.current = logSignature(finishedLog);
+      setAutoSaveState('saved');
+      setLog(finishedLog);
+      setCompleted(true);
+      const phrase = COMPLETION_PHRASES[Math.floor(Math.random() * COMPLETION_PHRASES.length)];
+      setCompletionPhrase(phrase);
+      setShowCompletion(true);
+    } catch (error) {
+      console.warn('finish workout save failed:', error);
+      setAutoSaveState('error');
+      Alert.alert('Panchita dice:', 'No pude terminar y guardar la rutina. El WiFi hizo cardio y se fue.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function getLastValue(exName, setIdx, field) {
@@ -627,6 +744,18 @@ export default function WorkoutScreen({ navigation }) {
           </View>
         )}
 
+        {log && autoSaveState !== 'idle' && !completed && (
+          <View style={[s.autoSavePill, autoSaveState === 'error' && s.autoSavePillError]}>
+            <Text style={[s.autoSaveText, autoSaveState === 'error' && s.autoSaveTextError]}>
+              {autoSaveState === 'saving'
+                ? 'Guardando automático...'
+                : autoSaveState === 'saved'
+                  ? 'Guardado automático ✓'
+                  : 'Autosave falló. Tocá Guardar progreso.'}
+            </Text>
+          </View>
+        )}
+
         {log?.exercises.map((ex, exIdx) => (
           <View key={exIdx} style={s.exCard}>
             <Text style={s.exName}>{ex.name}</Text>
@@ -635,7 +764,7 @@ export default function WorkoutScreen({ navigation }) {
               <Text style={[s.setCol, s.setLabel]}>Ant.</Text>
               <Text style={[s.setCol, s.setLabel]}>Reps</Text>
               <Text style={[s.setCol, s.setLabel]}>Kg</Text>
-              <View style={{ width: 60 }} />
+              <View style={{ width: 76 }} />
             </View>
             {ex.sets.map((st, setIdx) => {
               const prevReps   = getLastValue(ex.name, setIdx, 'reps');
@@ -671,11 +800,16 @@ export default function WorkoutScreen({ navigation }) {
                     >
                       <Text style={[s.doneBtnTxt, isDone && s.doneBtnTxtActive]}>✓</Text>
                     </TouchableOpacity>
-                    {!isDone && (
-                      <TouchableOpacity onPress={() => removeSet(exIdx, setIdx)} style={s.removeBtn}>
-                        <Text style={s.removeTxt}>✕</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      onPress={() => ex.sets.length > 1 ? removeSet(exIdx, setIdx) : clearSet(exIdx, setIdx)}
+                      style={[
+                        s.removeBtn,
+                        ex.sets.length <= 1 && !st.reps && !st.weight && !isDone && s.removeBtnDisabled,
+                      ]}
+                      disabled={ex.sets.length <= 1 && !st.reps && !st.weight && !isDone}
+                    >
+                      <Text style={s.removeTxt}>{ex.sets.length > 1 ? '−' : 'limpiar'}</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               );
@@ -742,6 +876,10 @@ function createStyles(colors) {
     // Completado
     completedBanner:   { backgroundColor: colors.limeDark + '33', borderRadius: RADIUS.md, padding: 12, marginBottom: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.lime },
     completedText:     { color: colors.lime, fontWeight: '600' },
+    autoSavePill:      { alignSelf: 'flex-end', backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10, borderWidth: 1, borderColor: colors.purpleDim },
+    autoSavePillError: { borderColor: colors.danger || '#ef4444' },
+    autoSaveText:      { color: colors.grayLight, fontSize: 11, fontWeight: '600' },
+    autoSaveTextError: { color: colors.danger || '#ef4444' },
 
     // Ejercicios
     exCard:            { backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 16, marginBottom: 14 },
@@ -756,13 +894,14 @@ function createStyles(colors) {
     setInputDone:      { opacity: 0.45 },
     setRowDone:        { opacity: 0.85 },
     setNumDone:        { color: colors.lime },
-    setActions:        { width: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+    setActions:        { width: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 },
     doneBtn:           { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
     doneBtnActive:     { backgroundColor: colors.lime, borderColor: colors.lime },
     doneBtnTxt:        { fontSize: 14, color: colors.gray, fontWeight: '700', lineHeight: 16 },
     doneBtnTxtActive:  { color: '#0f0a1e' },
-    removeBtn:         { width: 24, alignItems: 'center' },
-    removeTxt:         { color: colors.gray, fontSize: 11 },
+    removeBtn:         { minWidth: 34, height: 30, borderRadius: 15, paddingHorizontal: 6, backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
+    removeBtnDisabled: { opacity: 0.25 },
+    removeTxt:         { color: colors.grayLight, fontSize: 10, fontWeight: '700' },
     addSetBtn:         { alignSelf: 'flex-start', marginTop: 4 },
     addSetTxt:         { color: colors.purpleLight, fontSize: 13, fontWeight: '600' },
 
