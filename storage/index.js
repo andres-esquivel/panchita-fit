@@ -82,9 +82,20 @@ export async function saveUser(user) {
 }
 
 // ─── Rutinas base ──────────────────────────────────────────
+// Versión local-only: retorna lo que hay en AsyncStorage sin tocar red.
+export async function getLocalWorkouts() {
+  return await getLocalList('workouts');
+}
+
 export async function getWorkouts() {
-  try { return await getAll('workouts'); }
-  catch { return []; }
+  try {
+    const remote = await withTimeout(getAll('workouts'), 5000, 'workouts');
+    // Cachear localmente para acceso offline inmediato la próxima vez.
+    if (remote.length > 0) await setLocalList('workouts', remote);
+    return remote;
+  } catch {
+    return await getLocalList('workouts');
+  }
 }
 
 export async function saveWorkouts(workouts) {
@@ -97,6 +108,11 @@ export async function saveWorkouts(workouts) {
 }
 
 // ─── Rutinas custom ────────────────────────────────────────
+// Versión local-only: instantánea, sin red.
+export async function getLocalCustomRoutines() {
+  return await getLocalList('customRoutines');
+}
+
 export async function getCustomRoutines() {
   const local = await getLocalList('customRoutines');
   try {

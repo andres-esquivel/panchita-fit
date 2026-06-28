@@ -10,8 +10,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import {
-  getWorkouts, getLogs, saveLog,
-  getCustomRoutines, saveCustomRoutine, deleteCustomRoutine,
+  getWorkouts, getLocalWorkouts, getLogs, saveLog,
+  getCustomRoutines, getLocalCustomRoutines,
+  saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity, getWeightUnit,
 } from '../storage';
 import Panchita from '../components/Panchita';
@@ -96,17 +97,28 @@ function buildRecommendation(muscleActivity) {
 }
 
 // ─── Normalizar ejercicios desde cualquier formato ────────
+// BUG CRÍTICO: Object.values("Press banca") → ["P","r","e","s","s",...]
+// Por eso los nombres salían como "E" (primera letra de "Ejercicio...")
 function normalizeExercises(raw) {
   if (!raw) return [];
-  // Firestore puede devolver array o mapa con claves numéricas
-  const arr = Array.isArray(raw) ? raw : Object.values(raw);
-  return arr
-    .map((ex, idx) => {
+  // Si es string, puede ser CSV: "Press banca, Press inclinado"
+  if (typeof raw === 'string') {
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  // Array normal: ["Press banca", ...] o [{name:"Press banca", sets:[...]}, ...]
+  if (Array.isArray(raw)) {
+    return raw.map(ex => {
       if (typeof ex === 'string' && ex.trim()) return ex.trim();
-      if (ex && typeof ex === 'object' && ex.name) return String(ex.name);
-      return null; // filtrar vacíos
-    })
-    .filter(Boolean);
+      if (ex && typeof ex === 'object' && ex.name) return String(ex.name).trim();
+      return null;
+    }).filter(Boolean);
+  }
+  // Objeto con claves numéricas (Firestore a veces serializa arrays así)
+  return Object.values(raw).map(ex => {
+    if (typeof ex === 'string' && ex.trim()) return ex.trim();
+    if (ex && typeof ex === 'object' && ex.name) return String(ex.name).trim();
+    return null;
+  }).filter(Boolean);
 }
 
 // ─── Conversión de peso ────────────────────────────────────
@@ -169,9 +181,11 @@ export default function WorkoutScreen({ navigation }) {
   const [showRecommend, setShowRecommend]     = useState(false);
   const [recommendation, setRecommendation]   = useState(null);
   const [loadingRecommend, setLoadingRecommend] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const autoSaveTimerRef = useRef(null);
   const lastSavedLogRef  = useRef('');
+  const selectedWorkoutRef = useRef(null); // para acceso en closures async
 
   useFocusEffect(useCallback(()=>{ loadAll(); },[mode]));
 
@@ -232,17 +246,42 @@ export default function WorkoutScreen({ navigation }) {
   },[log, selectedWorkout?.id, completed]);
 
   async function loadAll() {
-    const [base, custom] = await Promise.all([getWorkouts(), getCustomRoutines()]);
-    setBaseWorkouts(base);
-    setCustomRoutines(custom);
-    // Solo auto-seleccionar si no hay ninguna seleccionada aún
-    if (!selectedWorkout) {
-      const list = mode==='base' ? base : custom;
+    // ── FASE 1: local inmediato (sin red, ~0ms) ──────────────
+    const [localBase, localCustom] = await Promise.all([
+      getLocalWorkouts(),
+      getLocalCustomRoutines(),
+    ]);
+    setBaseWorkouts(localBase);
+    setCustomRoutines(localCustom);
+    // Auto-seleccionar primera rutina disponible
+    if (!selectedWorkoutRef.current) {
+      const list = mode==='base' ? localBase : localCustom;
       if (list.length>0) await selectWorkout(list[0]);
+    }
+
+    // ── FASE 2: sincronizar con Firestore en background ──────
+    setSyncing(true);
+    try {
+      const [remoteBase, remoteCustom] = await Promise.all([
+        getWorkouts(),
+        getCustomRoutines(),
+      ]);
+      setBaseWorkouts(remoteBase);
+      setCustomRoutines(remoteCustom);
+      // Si lo que llegó de Firestore difiere de lo local, actualizar selección
+      if (!selectedWorkoutRef.current) {
+        const list = mode==='base' ? remoteBase : remoteCustom;
+        if (list.length>0) await selectWorkout(list[0]);
+      }
+    } catch(e) {
+      console.warn('Background sync failed:', e);
+    } finally {
+      setSyncing(false);
     }
   }
 
   async function selectWorkout(workout) {
+    selectedWorkoutRef.current = workout;
     setSelectedWorkout(workout);
 
     // Normalizar ejercicios — manejar todos los formatos posibles de Firestore
@@ -312,6 +351,7 @@ export default function WorkoutScreen({ navigation }) {
   }
 
   async function switchMode(newMode) {
+    selectedWorkoutRef.current = null;
     setMode(newMode);
     setSelectedWorkout(null);
     setLog(null);
@@ -700,17 +740,20 @@ export default function WorkoutScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Nombre rutina activa */}
-      {selectedWorkout&&log&&(
-        <View style={s.activeBar}>
-          <Text style={s.activeName} numberOfLines={1}>
+      {/* Nombre rutina activa + estado */}
+      <View style={s.activeBar}>
+        {selectedWorkout&&log ? (
+          <Text style={s.activeName} numberOfLines={1} ellipsizeMode="tail">
             {selectedWorkout.isRecurring?'📅 ':''}{selectedWorkout.name||selectedWorkout.day}
           </Text>
-          {autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
-          {autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓</Text>}
-          {autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:colors.danger||'#ef4444'}]}>⚠ Error al guardar</Text>}
-        </View>
-      )}
+        ) : (
+          <Text style={s.activeName} numberOfLines={1}>{syncing ? 'Cargando...' : 'Seleccioná una rutina'}</Text>
+        )}
+        {syncing&&<Text style={s.syncHint}>↻ Sincronizando</Text>}
+        {!syncing&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
+        {!syncing&&autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓ Guardado</Text>}
+        {!syncing&&autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:'#ef4444'}]}>⚠ Error</Text>}
+      </View>
 
       {/* Selector de rutinas */}
       <View style={{flexDirection:'row',alignItems:'center'}}>
@@ -756,85 +799,85 @@ export default function WorkoutScreen({ navigation }) {
         {/* Tarjetas de ejercicios */}
         {(log?.exercises||[]).map((ex, exIdx)=>(
           <View key={exIdx} style={s.exCard}>
-            {/* Nombre del ejercicio */}
+            {/* Nombre del ejercicio — completo, sin truncar */}
             <Text style={s.exName}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
 
-            {/* Cabecera de columnas — solo aparece una vez */}
-            <View style={s.setHeaderRow}>
-              <View style={s.setNumCol}><Text style={s.colHeader}>#</Text></View>
-              <View style={s.inputCol}><Text style={s.colHeader}>REPS</Text></View>
-              <View style={s.inputCol}><Text style={s.colHeader}>{weightUnit.toUpperCase()}</Text></View>
-              <View style={s.actionCols}><Text style={s.colHeader}>  </Text></View>
-            </View>
-
-            {/* Sets — una fila por set */}
+            {/* Sets — tarjeta vertical por set */}
             {(ex.sets||[]).map((st, setIdx)=>{
               const prevReps   = getLastValue(ex.name, setIdx, 'reps');
               const prevWeight = getLastValue(ex.name, setIdx, 'weight');
               const hasPrev    = prevReps || prevWeight;
               const isDone     = !!st.done;
+              const isOnly     = ex.sets.length === 1;
 
               return (
-                <View key={setIdx}>
-                  <View style={[s.setRow, isDone&&s.setRowDone]}>
-                    {/* Número de set */}
-                    <View style={s.setNumCol}>
-                      <Text style={[s.setNum, isDone&&s.setNumDone]}>{setIdx+1}</Text>
-                    </View>
+                <View key={setIdx} style={[s.setCard, isDone && s.setCardDone]}>
+                  {/* ── Header: Set N + botones ── */}
+                  <View style={s.setCardHeader}>
+                    {/* Botón done — toca el label o el círculo */}
+                    <TouchableOpacity
+                      style={s.setDoneArea}
+                      onPress={()=>toggleSetDone(exIdx,setIdx)}
+                      hitSlop={{top:6,bottom:6,left:6,right:6}}
+                    >
+                      <View style={[s.setCircle, isDone&&s.setCircleDone]}>
+                        <Text style={[s.setCircleTxt, isDone&&s.setCircleTxtDone]}>
+                          {isDone ? '✓' : setIdx+1}
+                        </Text>
+                      </View>
+                      <Text style={[s.setLabel, isDone&&s.setLabelDone]}>
+                        {isDone ? 'Completado' : `Set ${setIdx+1}`}
+                      </Text>
+                    </TouchableOpacity>
 
-                    {/* REPS */}
-                    <View style={s.inputCol}>
+                    {/* Botón eliminar / limpiar */}
+                    <TouchableOpacity
+                      style={[s.setDelBtn, isOnly&&s.setDelBtnSoft]}
+                      onPress={()=>removeSet(exIdx,setIdx)}
+                      hitSlop={{top:8,bottom:8,left:8,right:8}}
+                    >
+                      <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>
+                        {isOnly ? 'limpiar' : '−'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* ── Inputs: REPS + KG/LB ── */}
+                  <View style={s.setInputRow}>
+                    <View style={s.setInputGroup}>
+                      <Text style={s.setInputLabel}>REPS</Text>
                       <TextInput
-                        style={[s.bigInput, isDone&&s.bigInputDone]}
+                        style={[s.setInput, isDone&&s.setInputDone]}
                         value={String(st.reps||'')}
                         onChangeText={v=>updateSet(exIdx,setIdx,'reps',v)}
                         keyboardType="numeric"
-                        placeholder="—"
+                        placeholder="0"
                         placeholderTextColor={colors.gray}
                         editable={!isDone}
                         selectTextOnFocus
+                        returnKeyType="next"
                       />
                     </View>
-
-                    {/* KG / LB */}
-                    <View style={s.inputCol}>
+                    <View style={s.setInputGroup}>
+                      <Text style={s.setInputLabel}>{weightUnit.toUpperCase()}</Text>
                       <TextInput
-                        style={[s.bigInput, isDone&&s.bigInputDone]}
+                        style={[s.setInput, isDone&&s.setInputDone]}
                         value={String(st.weight||'')}
                         onChangeText={v=>updateSet(exIdx,setIdx,'weight',v)}
                         keyboardType="numeric"
-                        placeholder="—"
+                        placeholder="0"
                         placeholderTextColor={colors.gray}
                         editable={!isDone}
                         selectTextOnFocus
+                        returnKeyType="done"
                       />
-                    </View>
-
-                    {/* Botones acción */}
-                    <View style={s.actionCols}>
-                      {/* ✓ */}
-                      <TouchableOpacity
-                        style={[s.doneBtn, isDone&&s.doneBtnActive]}
-                        onPress={()=>toggleSetDone(exIdx,setIdx)}
-                        hitSlop={{top:6,bottom:6,left:6,right:6}}
-                      >
-                        <Text style={[s.doneBtnTxt, isDone&&s.doneBtnTxtActive]}>✓</Text>
-                      </TouchableOpacity>
-                      {/* − */}
-                      <TouchableOpacity
-                        style={s.removeBtn}
-                        onPress={()=>removeSet(exIdx,setIdx)}
-                        hitSlop={{top:6,bottom:6,left:6,right:6}}
-                      >
-                        <Text style={s.removeTxt}>{ex.sets.length>1?'−':'✕'}</Text>
-                      </TouchableOpacity>
                     </View>
                   </View>
 
-                  {/* Anterior — solo si hay dato y el set no está hecho */}
+                  {/* ── Anterior ── */}
                   {hasPrev&&!isDone&&(
-                    <Text style={s.prevLabel}>
-                      Ant: {prevWeight||'?'}{weightUnit} × {prevReps||'?'}
+                    <Text style={s.setPrevText}>
+                      Ant: {prevReps||'—'} reps × {prevWeight||'—'} {weightUnit}
                     </Text>
                   )}
                 </View>
@@ -903,8 +946,9 @@ function createStyles(colors) {
     recommendBtnIcon: { fontSize:20 },
 
     // Barra activa
-    activeBar: { paddingHorizontal:16, paddingVertical:7, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
-    activeName: { fontSize:14, fontWeight:'700', color:colors.purpleLight, flex:1 },
+    activeBar: { paddingHorizontal:14, paddingVertical:8, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, flexDirection:'row', alignItems:'center', justifyContent:'space-between', minHeight:40 },
+    activeName: { fontSize:14, fontWeight:'700', color:colors.purpleLight, flex:1, marginRight:8 },
+    syncHint: { fontSize:11, color:colors.purple, marginLeft:8 },
     autoSaveHint: { fontSize:11, color:colors.gray, marginLeft:8 },
 
     // Selector rutinas
@@ -932,49 +976,56 @@ function createStyles(colors) {
     completedText:   { color:colors.purpleLight, fontWeight:'600', fontSize:14 },
 
     // Tarjeta ejercicio
-    exCard: { backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:14, marginBottom:12 },
-    exName: { fontSize:17, fontWeight:'800', color:colors.white, marginBottom:10, letterSpacing:0.1 },
+    exCard: { backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:14, marginBottom:14 },
+    exName: { fontSize:17, fontWeight:'800', color:colors.white, marginBottom:12, letterSpacing:0.1 },
 
-    // Cabecera columnas
-    setHeaderRow: { flexDirection:'row', alignItems:'center', paddingBottom:6, borderBottomWidth:1, borderBottomColor:colors.purpleDim, marginBottom:4 },
-    colHeader: { fontSize:10, fontWeight:'700', color:colors.gray, textTransform:'uppercase', letterSpacing:0.8, textAlign:'center' },
-
-    // Columnas fijas del set
-    setNumCol: { width:28, alignItems:'center' },
-    inputCol: { flex:1, paddingHorizontal:3 },
-    actionCols: { flexDirection:'row', gap:5, alignItems:'center' },
-
-    // Fila de set — UNA línea
-    setRow: { flexDirection:'row', alignItems:'center', paddingVertical:5, gap:0 },
-    setRowDone: { opacity:0.55 },
-    setNum: { fontSize:13, fontWeight:'700', color:colors.gray, textAlign:'center' },
-    setNumDone: { color:colors.purpleLight },
-
-    // Input dentro del set
-    bigInput: {
-      height:48, backgroundColor:colors.bgInput,
-      borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim,
-      fontSize:18, fontWeight:'700', color:colors.white,
-      textAlign:'center',
+    // ── Tarjeta de set (layout vertical) ──
+    setCard: {
+      backgroundColor:colors.bgInput, borderRadius:RADIUS.md,
+      padding:12, marginBottom:10,
+      borderWidth:1, borderColor:colors.purpleDim,
     },
-    bigInputDone: { opacity:0.4, borderColor:'transparent' },
+    setCardDone: { borderColor:colors.purple, opacity:0.72 },
 
-    // Botones set
-    doneBtn: { width:42, height:48, borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center' },
-    doneBtnActive: { backgroundColor:colors.purpleLight, borderColor:colors.purpleLight },
-    doneBtnTxt: { fontSize:18, color:colors.gray, fontWeight:'700' },
-    doneBtnTxtActive: { color:'#fff' },
-    removeBtn: { width:36, height:48, borderRadius:RADIUS.sm, alignItems:'center', justifyContent:'center' },
-    removeTxt: { fontSize:20, color:colors.purpleDim, fontWeight:'700', lineHeight:24 },
+    // Header de la tarjeta de set
+    setCardHeader: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
+    setDoneArea: { flexDirection:'row', alignItems:'center', gap:8, flex:1 },
+    setCircle: {
+      width:28, height:28, borderRadius:14,
+      borderWidth:2, borderColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center',
+    },
+    setCircleDone: { backgroundColor:colors.purple, borderColor:colors.purple },
+    setCircleTxt: { fontSize:12, fontWeight:'800', color:colors.gray },
+    setCircleTxtDone: { color:'#fff' },
+    setLabel: { fontSize:14, fontWeight:'600', color:colors.grayLight },
+    setLabelDone: { color:colors.purpleLight },
 
-    // Anterior — inline, compacto
-    prevLabel: { fontSize:11, color:colors.purpleLight, marginTop:0, marginBottom:4, marginLeft:28, fontStyle:'italic', opacity:0.8 },
+    // Botón eliminar set
+    setDelBtn: { paddingHorizontal:12, paddingVertical:6, borderRadius:RADIUS.full, backgroundColor:colors.bgCard, borderWidth:1, borderColor:colors.purpleDim, minWidth:36, alignItems:'center' },
+    setDelBtnSoft: { borderColor:'transparent', backgroundColor:'transparent' },
+    setDelTxt: { fontSize:18, fontWeight:'700', color:colors.gray },
+    setDelTxtSoft: { fontSize:12, color:colors.gray },
+
+    // Inputs de set — dos columnas 45/45
+    setInputRow: { flexDirection:'row', gap:10 },
+    setInputGroup: { flex:1, gap:5 },
+    setInputLabel: { fontSize:10, fontWeight:'700', color:colors.gray, textTransform:'uppercase', letterSpacing:1 },
+    setInput: {
+      height:52, backgroundColor:colors.bg,
+      borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim,
+      fontSize:22, fontWeight:'700', color:colors.white, textAlign:'center',
+    },
+    setInputDone: { opacity:0.35, borderColor:'transparent' },
+
+    // Dato anterior
+    setPrevText: { fontSize:12, color:colors.gray, marginTop:8, fontStyle:'italic' },
 
     // Footer ejercicio
-    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:8, paddingTop:8, borderTopWidth:1, borderTopColor:colors.purpleDim },
-    addSetBtn: { paddingVertical:4, paddingHorizontal:8 },
-    addSetTxt: { color:colors.purpleLight, fontSize:14, fontWeight:'700' },
-    removeExBtn: { paddingVertical:4, paddingHorizontal:8 },
+    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:6, paddingTop:8, borderTopWidth:1, borderTopColor:colors.purpleDim },
+    addSetBtn: { paddingVertical:6, paddingHorizontal:10 },
+    addSetTxt: { color:colors.purpleLight, fontSize:15, fontWeight:'700' },
+    removeExBtn: { paddingVertical:6, paddingHorizontal:10 },
     removeExTxt: { color:colors.gray, fontSize:12, textDecorationLine:'underline' },
 
     // Acciones principales
