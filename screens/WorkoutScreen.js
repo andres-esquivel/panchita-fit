@@ -259,6 +259,10 @@ export default function WorkoutScreen({ navigation }) {
     confirmDestructive:false, onConfirm:null, showCancel:true,
   });
 
+  // Agregar ejercicio a sesión activa
+  const [showAddExModal, setShowAddExModal]   = useState(false);
+  const [addExSearch, setAddExSearch]         = useState('');
+
   // Compartir rutina
   const [showShareModal, setShowShareModal]   = useState(false);
   const [shareCode, setShareCode]             = useState('');
@@ -532,6 +536,18 @@ export default function WorkoutScreen({ navigation }) {
       return { ...prev, exercises };
     });
   },[]);
+
+  // ─── Agregar ejercicio a sesión activa ───────────────────
+  function addExerciseToSession(name) {
+    const trimmed = (name||'').trim();
+    if (!trimmed || !log) return;
+    setLog(prev => ({
+      ...prev,
+      exercises: [...prev.exercises, { name: trimmed, unit: weightUnit, sets: [{ reps: '', weight: '' }] }],
+    }));
+    setShowAddExModal(false);
+    setAddExSearch('');
+  }
 
   // ─── Cambiar unidad por ejercicio ─────────────────────────
   const setExUnit = useCallback((exIdx, newUnit)=>{
@@ -1435,6 +1451,13 @@ export default function WorkoutScreen({ navigation }) {
           </View>
         ))}
 
+        {/* Botón agregar ejercicio a sesión activa */}
+        {log&&(
+          <TouchableOpacity style={s.addExToSessionBtn} onPress={()=>setShowAddExModal(true)} activeOpacity={0.7}>
+            <Text style={s.addExToSessionTxt}>+ Agregar ejercicio</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Botones de acción */}
         {log&&(
           <View style={s.actions}>
@@ -1450,6 +1473,55 @@ export default function WorkoutScreen({ navigation }) {
         )}
       </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── Modal agregar ejercicio a sesión activa ── */}
+      <Modal visible={showAddExModal} transparent animationType="slide" onRequestClose={()=>{ setShowAddExModal(false); setAddExSearch(''); }}>
+        <View style={s.bsOverlay}>
+          <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={()=>{ setShowAddExModal(false); setAddExSearch(''); }}/>
+          <View style={[s.bottomSheet,{paddingHorizontal:0,paddingTop:16,paddingBottom:32}]}>
+            <View style={s.bottomSheetHandle}/>
+            <Text style={[s.bottomSheetTitle,{marginBottom:12}]}>Agregar ejercicio</Text>
+            {/* Buscador */}
+            <View style={{paddingHorizontal:16,marginBottom:12}}>
+              <TextInput
+                style={[s.createInput]}
+                placeholder="Buscar o escribir nombre libre..."
+                placeholderTextColor={colors.gray}
+                value={addExSearch}
+                onChangeText={setAddExSearch}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={()=>addExExSearch&&addExerciseToSession(addExSearch)}
+              />
+            </View>
+            {/* Lista filtrada */}
+            <ScrollView style={{maxHeight:320}} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {/* Opción libre si no coincide exactamente con ninguna */}
+              {addExSearch.trim().length>1&&!Object.values(MUSCLE_EXERCISES).flat().some(e=>e.toLowerCase()===addExSearch.trim().toLowerCase())&&(
+                <TouchableOpacity style={[s.bsOption,{borderBottomWidth:1,borderBottomColor:colors.purpleDim}]} onPress={()=>addExerciseToSession(addExSearch)}>
+                  <Text style={[s.bsOptionTxt,{color:colors.purpleLight}]}>+ Agregar "{addExSearch.trim()}"</Text>
+                </TouchableOpacity>
+              )}
+              {Object.entries(MUSCLE_EXERCISES).map(([group,exercises])=>{
+                const filtered = exercises.filter(e=>!addExSearch.trim()||e.toLowerCase().includes(addExSearch.trim().toLowerCase()));
+                if (filtered.length===0) return null;
+                return (
+                  <View key={group}>
+                    <Text style={{fontSize:11,fontWeight:'700',color:colors.gray,textTransform:'uppercase',letterSpacing:1,paddingHorizontal:16,paddingTop:12,paddingBottom:4}}>
+                      {MUSCLE_LABELS[group]}
+                    </Text>
+                    {filtered.map(ex=>(
+                      <TouchableOpacity key={ex} style={s.bsOption} onPress={()=>addExerciseToSession(ex)}>
+                        <Text style={s.bsOptionTxt}>{ex}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* ConfirmModal — reemplaza Alert.alert globalmente en esta pantalla */}
       <ConfirmModal
@@ -1669,5 +1741,9 @@ function createStyles(colors) {
 
     // T4 — indicador datos locales
     localDataHint: { fontSize:11, color:colors.gray, marginLeft:8, opacity:0.8 },
+
+    // Agregar ejercicio a sesión
+    addExToSessionBtn: { borderWidth:1.5, borderColor:colors.purpleDim, borderRadius:RADIUS.full, paddingVertical:13, alignItems:'center', marginBottom:12, minHeight:48, justifyContent:'center', borderStyle:'dashed' },
+    addExToSessionTxt: { color:colors.purpleLight, fontWeight:'700', fontSize:15 },
   });
 }

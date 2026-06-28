@@ -16,7 +16,7 @@ import LoginScreen    from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import WeeklyReviewModal from './screens/WeeklyReviewModal';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { isOnboarded, shouldShowWeeklyReview } from './storage';
+import { isOnboarded, shouldShowWeeklyReview, markWeeklyReviewSeen } from './storage';
 import { IconHome, IconDumbbell, IconPaw, IconChart, IconSettings } from './components/icons';
 
 const Tab = createBottomTabNavigator();
@@ -202,7 +202,13 @@ function RootApp() {
           visible={showWeeklyReview}
           weekKey={weeklyReviewInfo.weekKey}
           weekEnd={weeklyReviewInfo.weekEnd}
-          onClose={() => setShowWeeklyReview(false)}
+          onClose={() => {
+            setShowWeeklyReview(false);
+            // Marcar como visto aunque el usuario no complete — no volver a mostrar esta semana
+            if (weeklyReviewInfo?.weekKey) {
+              markWeeklyReviewSeen(weeklyReviewInfo.weekKey);
+            }
+          }}
         />
       )}
     </SafeAreaProvider>

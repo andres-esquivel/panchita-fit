@@ -102,7 +102,12 @@ export default function HomeScreen({ navigation }) {
         <View style={s.insightCard}>
           <View style={s.insightRow}>
             {/* Panchita ‚Äî ocupa toda la altura de la fila */}
-            <Panchita state={mood} size={130} onIdle={() => setMood("idle")} />
+            <Panchita
+              state={mood === 'idle' || mood === 'neutral' ? 'waveLoop' : mood}
+              size={130}
+              autoWave={false}
+              onIdle={() => setMood('idle')}
+            />
             {/* Columna derecha: globo + botón */}
             <View style={s.insightRight}>
               <View style={s.insightBubble}>

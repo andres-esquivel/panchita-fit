@@ -369,6 +369,8 @@ export async function getRecentMuscleActivity() {
 }
 
 // ─── Cierres semanales ─────────────────────────────────────
+const WEEKLY_REVIEW_SEEN_KEY = 'panchita_weeklyReview_seen';
+
 export async function getWeeklyReviews() {
   try {
     const items = await getAll('weeklyReviews');
@@ -378,7 +380,18 @@ export async function getWeeklyReviews() {
 
 export async function saveWeeklyReview(review) {
   const id = review.weekKey.replace(/[^a-zA-Z0-9-]/g, '_');
+  // Guardar local primero (instantáneo, evita re-aparición si Firestore es lento)
+  await markWeeklyReviewSeen(review.weekKey);
   await setDoc(doc(userCol('weeklyReviews'), id), review, { merge: true });
+}
+
+// Marca la semana como vista en AsyncStorage (inmediato, funciona offline)
+export async function markWeeklyReviewSeen(weekKey) {
+  try {
+    await AsyncStorage.setItem(WEEKLY_REVIEW_SEEN_KEY, weekKey);
+  } catch (e) {
+    console.warn('markWeeklyReviewSeen failed:', e);
+  }
 }
 
 function getWeekKey(date = new Date()) {
@@ -396,9 +409,24 @@ export async function shouldShowWeeklyReview() {
   if (dow !== 0 && dow !== 1) return null;
   const reviewDate = dow === 0 ? today : new Date(today.getTime() - 86400000);
   const weekKey = getWeekKey(reviewDate);
-  const reviews = await getWeeklyReviews();
-  const already = reviews.find(r => r.weekKey === weekKey);
-  if (already) return null;
+
+  // Chequeo local primero — instantáneo, funciona offline
+  // Evita re-aparición si Firestore tarda o el usuario cerró sin completar
+  try {
+    const seen = await AsyncStorage.getItem(WEEKLY_REVIEW_SEEN_KEY);
+    if (seen === weekKey) return null;
+  } catch {}
+
+  // Chequeo remoto — si ya existe en Firestore, sincroni local y no mostrar
+  try {
+    const reviews = await getWeeklyReviews();
+    const already = reviews.find(r => r.weekKey === weekKey);
+    if (already) {
+      markWeeklyReviewSeen(weekKey).catch(() => {});
+      return null;
+    }
+  } catch {}
+
   const sunday = new Date(reviewDate);
   sunday.setDate(sunday.getDate() - sunday.getDay());
   const weekEnd = sunday.toISOString().split('T')[0];

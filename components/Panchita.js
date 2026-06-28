@@ -29,19 +29,21 @@ const FRAME_COUNT = 6;
 
 // ── Config por estado ─────────────────────────────────────────────────────────
 // duration: null = loop infinito; número = ms hasta volver a idle
+// fps de loops reducido a la mitad para que no sean tan rápidas
 const STATE_CONFIG = {
-  idle:      { strip: 'idle',     fps: 7,  duration: null },
-  neutral:   { strip: 'idle',     fps: 7,  duration: null },
-  wave:      { strip: 'wave',     fps: 8,  duration: 2400 },
-  happy:     { strip: 'wave',     fps: 8,  duration: 2000 },
-  angry:     { strip: 'bark',     fps: 9,  duration: 2000 },
-  bark:      { strip: 'bark',     fps: 9,  duration: 1200 },
-  thinking:  { strip: 'thinking', fps: 6,  duration: null },
-  coach:     { strip: 'thinking', fps: 6,  duration: null },
-  flex:      { strip: 'flex',     fps: 8,  duration: 2400 },
-  celebrate: { strip: 'flex',     fps: 8,  duration: 2400 },
-  sleepy:    { strip: 'sleepy',   fps: 5,  duration: null },
-  tired:     { strip: 'sleepy',   fps: 5,  duration: null },
+  idle:      { strip: 'idle',     fps: 3,  duration: null },   // loop — 3fps (~333ms/frame)
+  neutral:   { strip: 'idle',     fps: 3,  duration: null },   // loop
+  waveLoop:  { strip: 'wave',     fps: 4,  duration: null },   // loop — para HomeScreen
+  wave:      { strip: 'wave',     fps: 8,  duration: 2400 },   // one-shot
+  happy:     { strip: 'wave',     fps: 8,  duration: 2000 },   // one-shot
+  angry:     { strip: 'bark',     fps: 9,  duration: 2000 },   // one-shot
+  bark:      { strip: 'bark',     fps: 9,  duration: 1200 },   // one-shot
+  thinking:  { strip: 'thinking', fps: 3,  duration: null },   // loop — 3fps
+  coach:     { strip: 'thinking', fps: 3,  duration: null },   // loop
+  flex:      { strip: 'flex',     fps: 8,  duration: 2400 },   // one-shot
+  celebrate: { strip: 'flex',     fps: 8,  duration: 2400 },   // one-shot
+  sleepy:    { strip: 'sleepy',   fps: 2,  duration: null },   // loop — 2fps (muy suave)
+  tired:     { strip: 'sleepy',   fps: 2,  duration: null },   // loop
 };
 
 // ── Componente ────────────────────────────────────────────────────────────────
