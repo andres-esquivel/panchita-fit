@@ -7,6 +7,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { RADIUS } from '../constants/theme';
 import { getWeeklyVolume, saveWeeklyReview } from '../storage';
 import Panchita from '../components/Panchita';
+import { IconArrow, IconChart, IconCheck, IconClose, IconMessage, IconTarget } from '../components/icons';
 import { GROQ_API_KEY } from '../config';
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
@@ -185,7 +186,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
           <View style={s.header}>
             <Text style={s.headerTitle}>Cierre semanal</Text>
             <TouchableOpacity onPress={onClose} style={s.closeBtn}>
-              <Text style={s.closeTxt}>✕</Text>
+              <IconClose size={14} color={colors.gray} />
             </TouchableOpacity>
           </View>
 
@@ -217,7 +218,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                     <Text style={s.weekDateRange}>{weekEnd}</Text>
 
                     <View style={s.summaryCard}>
-                      <Text style={s.summaryIcon}>✅</Text>
+                      <IconCheck size={22} color={colors.lime} />
                       <View style={{ flex: 1 }}>
                         <Text style={s.summaryMain}>
                           {daysCompleted} de {daysPlanned} días entrenados
@@ -228,7 +229,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
 
                     {volLast > 0 && (
                       <View style={s.summaryCard}>
-                        <Text style={s.summaryIcon}>📊</Text>
+                        <IconChart size={22} color={colors.purpleLight} />
                         <View style={{ flex: 1 }}>
                           <Text style={s.summaryMain}>
                             {volThis.toLocaleString()} kg de volumen total
@@ -241,7 +242,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                     )}
 
                     <TouchableOpacity style={s.btnPrimary} onPress={() => setStep(1)}>
-                      <Text style={s.btnPrimaryTxt}>Continuar →</Text>
+                      <View style={s.btnRow}><Text style={s.btnPrimaryTxt}>Continuar</Text><IconArrow size={15} color="#fff" /></View>
                     </TouchableOpacity>
                   </StepCard>
                 )}
@@ -251,7 +252,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                   <StepCard>
                     <Panchita state="neutral" size={90} />
                     <Text style={s.stepLabel}>Reflexión</Text>
-                    <Text style={s.panchitaQuote}>💬 {reflectionPhrase}</Text>
+                    <View style={s.quoteRow}><IconMessage size={18} color={colors.purpleLight} /><Text style={s.panchitaQuote}>{reflectionPhrase}</Text></View>
 
                     <TextInput
                       style={s.textArea}
@@ -271,7 +272,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                       onPress={() => setStep(2)}
                     >
                       <Text style={s.btnPrimaryTxt}>
-                        {reflection.trim() ? 'Siguiente →' : 'Saltar →'}
+                        {reflection.trim() ? 'Siguiente' : 'Saltar'}
                       </Text>
                     </TouchableOpacity>
                   </StepCard>
@@ -282,7 +283,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                   <StepCard>
                     <Panchita state="neutral" size={90} />
                     <Text style={s.stepLabel}>Objetivo</Text>
-                    <Text style={s.panchitaQuote}>🎯 ¿Qué vas a hacer diferente la próxima semana?</Text>
+                    <View style={s.quoteRow}><IconTarget size={18} color={colors.lime} /><Text style={s.panchitaQuote}>¿Qué vas a hacer diferente la próxima semana?</Text></View>
 
                     <TextInput
                       style={s.textInput}
@@ -302,7 +303,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                       {loadingGoal ? (
                         <ActivityIndicator color="#fff" />
                       ) : (
-                        <Text style={s.btnPrimaryTxt}>Preguntarle a Panchita →</Text>
+                        <View style={s.btnRow}><Text style={s.btnPrimaryTxt}>Preguntarle a Panchita</Text><IconArrow size={15} color="#fff" /></View>
                       )}
                     </TouchableOpacity>
 
@@ -402,13 +403,15 @@ function createStyles(colors) {
     summaryMain:  { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 4 },
     summaryPhrase:{ fontSize: 13, color: colors.purpleLight, fontStyle: 'italic' },
 
-    panchitaQuote:{ fontSize: 15, color: colors.white, fontStyle: 'italic', textAlign: 'center', marginVertical: 18, paddingHorizontal: 8, lineHeight: 22 },
+    quoteRow:     { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, marginVertical:18, paddingHorizontal:8 },
+    panchitaQuote:{ fontSize: 15, color: colors.white, fontStyle: 'italic', textAlign: 'center', lineHeight: 22, flexShrink:1 },
 
     textArea:     { backgroundColor: colors.bgCard, borderRadius: RADIUS.md, padding: 14, fontSize: 15, color: colors.white, borderWidth: 1, borderColor: colors.purpleDim, width: '100%', minHeight: 120, lineHeight: 22 },
     textInput:    { backgroundColor: colors.bgCard, borderRadius: RADIUS.md, padding: 14, fontSize: 15, color: colors.white, borderWidth: 1, borderColor: colors.purpleDim, width: '100%', marginBottom: 16 },
     charCount:    { fontSize: 11, color: colors.gray, alignSelf: 'flex-end', marginTop: 4, marginBottom: 16 },
 
     btnPrimary:   { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 15, paddingHorizontal: 32, alignItems: 'center', width: '100%', marginTop: 8 },
+    btnRow:       { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:6 },
     btnPrimaryTxt:{ color: '#fff', fontWeight: '800', fontSize: 16 },
     btnDisabled:  { opacity: 0.45 },
     btnSecondary: { paddingVertical: 12, alignItems: 'center', marginTop: 8 },

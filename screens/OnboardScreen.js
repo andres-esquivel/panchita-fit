@@ -6,6 +6,7 @@ import {
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { saveWorkouts, saveUser, setOnboarded } from '../storage';
+import { IconArrow, IconCheck, IconMuscle, IconPaw } from '../components/icons';
 
 const SPLITS = [
   { id: 'ppl',         label: 'Push / Pull / Legs',  days: 6, desc: '6 días · split clásico' },
@@ -89,7 +90,7 @@ export default function OnboardScreen({ onFinish }) {
         {/* STEP 0 */}
         {step === 0 && (
           <View style={s.center}>
-            <Text style={s.emoji}>{'🐾'}</Text>
+            <View style={s.onboardIcon}><IconPaw size={54} color={colors.purpleLight} /></View>
             <Text style={s.title}>Hola, soy Panchita</Text>
             <Text style={s.sub}>Tu coach de fitness personal.{'\n'}Vamos a configurar todo para que empieces a romperla.</Text>
             <TouchableOpacity style={s.btnPrimary} onPress={goNext}>
@@ -101,7 +102,7 @@ export default function OnboardScreen({ onFinish }) {
         {/* STEP 1 — Nombre */}
         {step === 1 && (
           <View style={s.center}>
-            <Text style={s.emoji}>{'💪'}</Text>
+            <View style={s.onboardIcon}><IconMuscle size={54} color={colors.purpleLight} /></View>
             <Text style={s.title}>{'¿'}Cómo te llamo?</Text>
             <TextInput
               style={s.input}
@@ -162,7 +163,7 @@ export default function OnboardScreen({ onFinish }) {
         {/* STEP 4 — Listo */}
         {step === 4 && (
           <View style={s.center}>
-            <Text style={s.emoji}>{'🎉'}</Text>
+            <View style={s.onboardIcon}><IconCheck size={54} color={colors.lime} /></View>
             <Text style={s.title}>{'¡'}Todo listo, {name}!</Text>
             {selectedSplit === 'custom' ? (
               <Text style={s.sub}>Panchita te espera.{'\n'}Creá tu primera rutina desde Entrenamiento.</Text>
@@ -170,7 +171,7 @@ export default function OnboardScreen({ onFinish }) {
               <Text style={s.sub}>Panchita va a estar acá para cada entrenamiento.{'\n'}No me falles.</Text>
             )}
             <TouchableOpacity style={s.btnLime} onPress={finish}>
-              <Text style={[s.btnText, { color: '#0f0a1e' }]}>Ir al app →</Text>
+              <View style={s.btnRow}><Text style={[s.btnText, { color: '#0f0a1e' }]}>Ir al app</Text><IconArrow size={15} color="#0f0a1e" /></View>
             </TouchableOpacity>
           </View>
         )}
@@ -193,7 +194,8 @@ function createStyles(colors) {
     scroll:            { flexGrow: 1, padding: 24, paddingTop: 60 },
     center:            { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 40 },
     section:           { flex: 1, paddingBottom: 40 },
-    emoji:             { fontSize: 64, marginBottom: 16 },
+    onboardIcon:       { width:76, height:76, borderRadius:38, backgroundColor:colors.bgCard, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center', marginBottom:16 },
+    btnRow:            { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:6 },
     title:             { fontSize: 28, fontWeight: '700', color: colors.white, textAlign: 'center', marginBottom: 12 },
     sub:               { fontSize: 16, color: colors.grayLight, textAlign: 'center', lineHeight: 24, marginBottom: 32 },
     input:             {

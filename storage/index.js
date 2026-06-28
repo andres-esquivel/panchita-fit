@@ -72,13 +72,30 @@ export async function setOnboarded() {
 // ─── Usuario / Perfil ─────────────────────────────────────
 export async function getUser() {
   try {
-    const snap = await getDoc(userDoc('profile/data'));
-    return snap.exists() ? snap.data() : null;
+    const localRaw = await AsyncStorage.getItem(localKey('profile'));
+    const local = localRaw ? JSON.parse(localRaw) : null;
+    try {
+      const snap = await withTimeout(getDoc(userDoc('profile/data')), 3500, 'getUser');
+      if (snap.exists()) {
+        const remote = snap.data();
+        await AsyncStorage.setItem(localKey('profile'), JSON.stringify(remote));
+        return remote;
+      }
+    } catch {}
+    return local;
   } catch { return null; }
 }
 
 export async function saveUser(user) {
-  await setDoc(userDoc('profile/data'), user, { merge: true });
+  const current = await getUser().catch(() => null);
+  const merged = { ...(current || {}), ...(user || {}), updatedAt: new Date().toISOString() };
+  await AsyncStorage.setItem(localKey('profile'), JSON.stringify(merged));
+  withTimeout(
+    setDoc(userDoc('profile/data'), merged, { merge: true }),
+    6500,
+    'saveUser'
+  ).catch(error => console.warn('Remote profile sync failed:', error));
+  return merged;
 }
 
 // ─── Rutinas base ──────────────────────────────────────────

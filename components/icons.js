@@ -342,3 +342,76 @@ export const IconHistory = ({ size = D, color = '#a78bfa' }) => (
     <View style={{ position:'absolute', width:size*0.22, height:2, backgroundColor:color, left:size*0.48, top:size*0.5 }} />
   </View>
 );
+
+export const IconCopy = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ position:'absolute', left:size*0.25, top:size*0.18, width:size*0.48, height:size*0.56, borderWidth:1.8, borderColor:color, borderRadius:3, opacity:0.55 }} />
+    <View style={{ position:'absolute', left:size*0.12, top:size*0.3, width:size*0.48, height:size*0.56, borderWidth:1.8, borderColor:color, borderRadius:3 }} />
+  </View>
+);
+
+export const IconDocument = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.62, height:size*0.78, borderWidth:1.8, borderColor:color, borderRadius:3 }}>
+      {[0,1,2].map(i => <View key={i} style={{ height:1.6, width:size*(0.34 + i*0.06), backgroundColor:color, borderRadius:1, marginTop:size*0.14, marginLeft:size*0.1, opacity:0.75 }} />)}
+    </View>
+  </View>
+);
+
+export const IconRepeat = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ position:'absolute', top:size*0.22, left:size*0.16, right:size*0.16, height:size*0.24, borderTopWidth:2, borderLeftWidth:2, borderColor:color, borderTopLeftRadius:size*0.18 }} />
+    <View style={{ position:'absolute', bottom:size*0.22, left:size*0.16, right:size*0.16, height:size*0.24, borderBottomWidth:2, borderRightWidth:2, borderColor:color, borderBottomRightRadius:size*0.18 }} />
+    <View style={{ position:'absolute', right:size*0.08, top:size*0.12, width:0, height:0, borderTopWidth:size*0.14, borderTopColor:'transparent', borderBottomWidth:size*0.14, borderBottomColor:'transparent', borderLeftWidth:size*0.18, borderLeftColor:color }} />
+    <View style={{ position:'absolute', left:size*0.08, bottom:size*0.12, width:0, height:0, borderTopWidth:size*0.14, borderTopColor:'transparent', borderBottomWidth:size*0.14, borderBottomColor:'transparent', borderRightWidth:size*0.18, borderRightColor:color }} />
+  </View>
+);
+
+export const IconDownload = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:2, height:size*0.44, backgroundColor:color, borderRadius:1 }} />
+    <View style={{ position:'absolute', top:size*0.46, width:size*0.34, height:size*0.34, borderRightWidth:2, borderBottomWidth:2, borderColor:color, transform:[{ rotate:'45deg' }] }} />
+    <View style={{ position:'absolute', bottom:size*0.14, width:size*0.72, height:2, backgroundColor:color, borderRadius:1 }} />
+  </View>
+);
+
+export const IconArrowUp = ({ size = D, color = '#ffffff' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.44, height:size*0.44, borderLeftWidth:2, borderTopWidth:2, borderColor:color, transform:[{ rotate:'45deg' }], marginTop:size*0.16 }} />
+  </View>
+);
+
+export const IconArrowDown = ({ size = D, color = '#ffffff' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.44, height:size*0.44, borderRightWidth:2, borderBottomWidth:2, borderColor:color, transform:[{ rotate:'45deg' }], marginBottom:size*0.16 }} />
+  </View>
+);
+
+export const IconSearch = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.5, height:size*0.5, borderRadius:size*0.25, borderWidth:2, borderColor:color, marginLeft:-size*0.08, marginTop:-size*0.08 }} />
+    <View style={{ position:'absolute', right:size*0.16, bottom:size*0.16, width:size*0.28, height:2, backgroundColor:color, borderRadius:1, transform:[{ rotate:'45deg' }] }} />
+  </View>
+);
+
+export const IconRefresh = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.66, height:size*0.66, borderRadius:size*0.33, borderWidth:2, borderRightColor:'transparent', borderColor:color, transform:[{ rotate:'25deg' }] }} />
+    <View style={{ position:'absolute', right:size*0.08, top:size*0.2, width:0, height:0, borderTopWidth:size*0.13, borderTopColor:'transparent', borderBottomWidth:size*0.13, borderBottomColor:'transparent', borderLeftWidth:size*0.18, borderLeftColor:color }} />
+  </View>
+);
+
+export const IconMessage = ({ size = D, color = '#a78bfa' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    <View style={{ width:size*0.78, height:size*0.56, borderWidth:1.8, borderColor:color, borderRadius:size*0.14 }} />
+    <View style={{ position:'absolute', left:size*0.2, bottom:size*0.14, width:size*0.22, height:size*0.22, borderLeftWidth:1.8, borderBottomWidth:1.8, borderColor:color, transform:[{ rotate:'-35deg' }], backgroundColor:'transparent' }} />
+  </View>
+);
+
+export const IconTarget = ({ size = D, color = '#a3e635' }) => (
+  <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+    {[0.78,0.5,0.22].map((k,i) => (
+      <View key={i} style={{ position:'absolute', width:size*k, height:size*k, borderRadius:size*k/2, borderWidth: i === 2 ? 0 : 1.8, borderColor:color, backgroundColor: i === 2 ? color : 'transparent', opacity: i === 0 ? 0.75 : 1 }} />
+    ))}
+  </View>
+);

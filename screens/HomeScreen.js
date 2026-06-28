@@ -6,6 +6,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { getUser, getWeekActivity, getLogs, getWeekSchedule } from '../storage';
+import { IconArrow, IconMessage, IconMuscle, IconSleep } from '../components/icons';
 
 // Días: getDay() → 0=Dom,1=Lun,...,6=Sáb → claves del schedule
 const DAY_KEYS_BY_GETDAY = ['D','L','M','X','J','V','S'];
@@ -125,7 +126,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={s.insightText}>{insight}</Text>
               </View>
               <TouchableOpacity onPress={() => navigation.navigate('Coach')}>
-                <Text style={s.insightBtnText}>Hablar con Panchita →</Text>
+                <View style={s.linkRow}><Text style={s.insightBtnText}>Hablar con Panchita</Text><IconArrow size={13} color={colors.purpleLight} /></View>
               </TouchableOpacity>
             </View>
           </View>
@@ -135,7 +136,7 @@ export default function HomeScreen({ navigation }) {
         {todaySchedule !== undefined && (
           todaySchedule === 'rest' ? (
             <View style={s.todayCard}>
-              <Text style={s.todayCardEmoji}>💤</Text>
+              <View style={s.todayCardIcon}><IconSleep size={27} color={colors.grayLight} /></View>
               <View style={{flex:1}}>
                 <Text style={s.todayCardTitle}>Hoy descansás.</Text>
                 <Text style={s.todayCardSub}>O eso dijiste.</Text>
@@ -143,7 +144,7 @@ export default function HomeScreen({ navigation }) {
             </View>
           ) : todaySchedule ? (
             <View style={s.todayCard}>
-              <Text style={s.todayCardEmoji}>💪</Text>
+              <View style={s.todayCardIcon}><IconMuscle size={27} color={colors.purpleLight} /></View>
               <View style={{flex:1}}>
                 <Text style={s.todayCardTitle}>Hoy toca: {todaySchedule.name}</Text>
                 <Text style={s.todayCardSub}>¿Arrancamos?</Text>
@@ -152,12 +153,12 @@ export default function HomeScreen({ navigation }) {
                 style={s.todayCardBtn}
                 onPress={()=>navigation.navigate('Workout',{selectRoutineId:todaySchedule.id})}
               >
-                <Text style={s.todayCardBtnTxt}>Ir →</Text>
+                <View style={s.btnRow}><Text style={s.todayCardBtnTxt}>Ir</Text><IconArrow size={12} color="#fff" /></View>
               </TouchableOpacity>
             </View>
           ) : (
             <View style={[s.todayCard,{opacity:0.7}]}>
-              <Text style={s.todayCardEmoji}>🤔</Text>
+              <View style={s.todayCardIcon}><IconMessage size={27} color={colors.purpleLight} /></View>
               <View style={{flex:1}}>
                 <Text style={s.todayCardTitle}>¿Qué entrenás hoy?</Text>
                 <Text style={s.todayCardSub}>No hay rutina asignada</Text>
@@ -166,7 +167,7 @@ export default function HomeScreen({ navigation }) {
                 style={s.todayCardBtn}
                 onPress={()=>navigation.navigate('Workout')}
               >
-                <Text style={s.todayCardBtnTxt}>Ver →</Text>
+                <View style={s.btnRow}><Text style={s.todayCardBtnTxt}>Ver</Text><IconArrow size={12} color="#fff" /></View>
               </TouchableOpacity>
             </View>
           )
@@ -208,7 +209,7 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         <TouchableOpacity style={s.trainBtn} onPress={() => navigation.navigate('Workout')}>
-          <Text style={s.trainBtnText}>Ir a entrenar hoy →</Text>
+          <View style={s.trainBtnRow}><Text style={s.trainBtnText}>Ir a entrenar hoy</Text><IconArrow size={15} color="#fff" /></View>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -243,6 +244,7 @@ function createStyles(colors) {
     },
     insightText:    { fontSize: 15, color: colors.white, lineHeight: 21, fontWeight: '700' },
     insightBtnText: { fontSize: 13, color: colors.purpleLight, fontWeight: '600', textAlign: 'right' },
+    linkRow:        { flexDirection:'row', alignItems:'center', justifyContent:'flex-end', gap:4 },
     sectionTitle:   { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 12 },
     weekCard:       {
       backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 20,
@@ -260,6 +262,7 @@ function createStyles(colors) {
     statNum:        { fontSize: 24, fontWeight: '700', color: colors.lime },
     statLabel:      { fontSize: 11, color: colors.gray, marginTop: 2, textAlign: 'center' },
     trainBtn:       { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 18, alignItems: 'center' },
+    trainBtnRow:    { flexDirection:'row', alignItems:'center', gap:6 },
     trainBtnText:   { color: '#ffffff', fontWeight: '700', fontSize: 16 },
 
     // T3 — tarjeta entrenamiento de hoy
@@ -268,13 +271,14 @@ function createStyles(colors) {
       padding: 14, marginBottom: 20, borderWidth: 1, borderColor: colors.purple,
       flexDirection: 'row', alignItems: 'center', gap: 12,
     },
-    todayCardEmoji: { fontSize: 28 },
+    todayCardIcon:  { width:34, height:34, borderRadius:17, backgroundColor:colors.bgInput, alignItems:'center', justifyContent:'center' },
     todayCardTitle: { fontSize: 15, fontWeight: '700', color: colors.white },
     todayCardSub:   { fontSize: 12, color: colors.gray, marginTop: 2 },
     todayCardBtn: {
       backgroundColor: colors.purple, borderRadius: RADIUS.full,
       paddingVertical: 8, paddingHorizontal: 14,
     },
+    btnRow: { flexDirection:'row', alignItems:'center', gap:4 },
     todayCardBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
   });
 }

@@ -16,7 +16,11 @@ import {
   getRecentMuscleActivity, getWeightUnit,
   shareRoutine, importSharedRoutine,
 } from '../storage';
-import { IconShare } from '../components/icons';
+import {
+  IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
+  IconCheck, IconClose, IconCopy, IconDocument, IconDownload, IconEditar, IconEliminar, IconHistory,
+  IconMenuDots, IconRepeat, IconShare, IconStar, IconWarning,
+} from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
@@ -172,6 +176,52 @@ function formatLogDate(dateStr) {
   return d.toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'});
 }
 
+function formatDateDisplay(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function daysInMonth(month, year) {
+  return new Date(year, month, 0).getDate();
+}
+
+function WheelPicker({ items, selectedIndex, onSelect, width, colors }) {
+  const ITEM_H = 42;
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.scrollTo({ y: selectedIndex * ITEM_H, animated: false });
+  }, [selectedIndex]);
+  return (
+    <View style={{ width, height: ITEM_H * 3, overflow: 'hidden', borderRadius: RADIUS.md, backgroundColor: colors.bgInput }}>
+      <View style={{ position: 'absolute', top: ITEM_H, left: 0, right: 0, height: ITEM_H, backgroundColor: colors.purpleDim, opacity: 0.7 }} />
+      <ScrollView
+        ref={ref}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_H}
+        decelerationRate="fast"
+        onMomentumScrollEnd={e => {
+          const idx = Math.round(e.nativeEvent.contentOffset.y / ITEM_H);
+          onSelect(Math.max(0, Math.min(idx, items.length - 1)));
+        }}
+        contentContainerStyle={{ paddingVertical: ITEM_H }}
+      >
+        {items.map((item, i) => (
+          <View key={i} style={{ height: ITEM_H, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{
+              fontSize: i === selectedIndex ? 18 : 14,
+              fontWeight: i === selectedIndex ? '800' : '600',
+              color: i === selectedIndex ? colors.white : colors.gray,
+            }}>
+              {String(item).padStart(2, '0')}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 function calcLogVolume(log) {
   return (log.exercises||[]).reduce((total,ex)=>
     total+(ex.sets||[]).reduce((s,st)=>{
@@ -241,15 +291,27 @@ export default function WorkoutScreen({ navigation, route }) {
   const [editNameRoutine, setEditNameRoutine] = useState(null);
   const [editNameValue, setEditNameValue]     = useState('');
   const [editNameSaving, setEditNameSaving]   = useState(false);
+  const [deletingRoutineId, setDeletingRoutineId] = useState(null);
+  const [deletingRoutineName, setDeletingRoutineName] = useState('');
 
   // ── T3: routine selection modal ───────────────────────
   const [showRoutineModal, setShowRoutineModal]       = useState(false);
   const [routineModalTarget, setRoutineModalTarget]   = useState(null);
   const [routineModalDaysSince, setRoutineModalDaysSince] = useState(null);
   const [activeWorkoutRoutine, setActiveWorkoutRoutine] = useState(null);
+  const [activeWorkoutDate, setActiveWorkoutDate] = useState(TODAY);
+  const [activeWorkoutBackfill, setActiveWorkoutBackfill] = useState(false);
   const [showHistoryView, setShowHistoryView]         = useState(false);
   const [historyLogs, setHistoryLogs]                 = useState([]);
   const [historyDetailLog, setHistoryDetailLog]       = useState(null);
+
+  // Registrar sesión pasada
+  const now = new Date();
+  const [showPastDateModal, setShowPastDateModal] = useState(false);
+  const [pastRoutineTarget, setPastRoutineTarget] = useState(null);
+  const [pastDayIdx, setPastDayIdx] = useState(Math.max(0, now.getDate() - 2));
+  const [pastMonthIdx, setPastMonthIdx] = useState(now.getMonth());
+  const [pastYearIdx, setPastYearIdx] = useState(0);
 
   // ── T4: loading + fallback ────────────────────────────
   const [initialLoading, setInitialLoading]   = useState(true);
@@ -287,6 +349,23 @@ export default function WorkoutScreen({ navigation, route }) {
   const autoSaveTimerRef = useRef(null);
   const lastSavedLogRef  = useRef('');
   const selectedWorkoutRef = useRef(null); // para acceso en closures async
+
+  const pastYears = useMemo(() => {
+    const years = [];
+    for (let y = now.getFullYear(); y >= 2020; y--) years.push(y);
+    return years;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const pastSelectedYear = pastYears[pastYearIdx] || now.getFullYear();
+  const pastSelectedMonth = pastMonthIdx + 1;
+  const pastMaxDays = daysInMonth(pastSelectedMonth, pastSelectedYear);
+  const pastDays = useMemo(() => Array.from({ length: pastMaxDays }, (_, i) => i + 1), [pastMaxDays]);
+  const pastSafeDayIdx = Math.min(pastDayIdx, pastMaxDays - 1);
+
+  function selectedPastIso() {
+    const d = pastDays[pastSafeDayIdx] || 1;
+    return `${pastSelectedYear}-${String(pastSelectedMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
 
   useFocusEffect(useCallback(()=>{ loadAll(); },[mode]));
 
@@ -835,12 +914,25 @@ export default function WorkoutScreen({ navigation, route }) {
   }
 
   async function doDeleteRoutine(routine) {
-    await deleteCustomRoutine(routine.id);
-    const updated = await getCustomRoutines();
+    if (!routine?.id) return;
+    const previous = customRoutines;
+    const updated = previous.filter(r => r.id !== routine.id);
+    setDeletingRoutineId(routine.id);
+    setDeletingRoutineName(routine.name || routine.day || 'rutina');
     setCustomRoutines(updated);
+    setShowChipMenu(false);
     if (selectedWorkout?.id===routine.id) {
       setSelectedWorkout(null); setLog(null);
-      if (updated.length>0) await selectWorkout(updated[0]);
+      if (updated.length>0) selectWorkout(updated[0]).catch(()=>{});
+    }
+    try {
+      await deleteCustomRoutine(routine.id);
+    } catch(e) {
+      setCustomRoutines(previous);
+      showInfo('No se pudo eliminar', 'Restauré la rutina porque falló el guardado. El WiFi hizo cardio y se cansó.');
+    } finally {
+      setDeletingRoutineId(null);
+      setDeletingRoutineName('');
     }
   }
 
@@ -902,7 +994,33 @@ export default function WorkoutScreen({ navigation, route }) {
 
   function startNewSession() {
     setShowRoutineModal(false);
+    setActiveWorkoutDate(TODAY);
+    setActiveWorkoutBackfill(false);
     if (routineModalTarget) setActiveWorkoutRoutine(routineModalTarget);
+  }
+
+  function openPastSessionModal(routine) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    setPastRoutineTarget(routine);
+    setPastDayIdx(Math.max(0, yesterday.getDate() - 1));
+    setPastMonthIdx(yesterday.getMonth());
+    const yearIndex = pastYears.findIndex(y => y === yesterday.getFullYear());
+    setPastYearIdx(yearIndex >= 0 ? yearIndex : 0);
+    setShowRoutineModal(false);
+    setShowPastDateModal(true);
+  }
+
+  function startPastSession() {
+    const iso = selectedPastIso();
+    if (iso > TODAY) {
+      showInfo('Fecha inválida', 'No podés registrar una sesión del futuro. Panchita todavía no domina viajes temporales.');
+      return;
+    }
+    setActiveWorkoutDate(iso);
+    setActiveWorkoutBackfill(true);
+    setActiveWorkoutRoutine(pastRoutineTarget);
+    setShowPastDateModal(false);
   }
 
   // ─── Recomendación ────────────────────────────────────────
@@ -925,11 +1043,15 @@ export default function WorkoutScreen({ navigation, route }) {
       exercises:recommendation.exercises,
     };
     setShowRecommend(false);
+    setActiveWorkoutDate(TODAY);
+    setActiveWorkoutBackfill(false);
     setActiveWorkoutRoutine(routine);
   }
 
   function closeActiveWorkout() {
     setActiveWorkoutRoutine(null);
+    setActiveWorkoutDate(TODAY);
+    setActiveWorkoutBackfill(false);
     setSelectedWorkout(null);
     setLog(null);
     setCompleted(false);
@@ -937,12 +1059,15 @@ export default function WorkoutScreen({ navigation, route }) {
   }
 
   function finishActiveWorkout() {
+    const wasBackfill = activeWorkoutBackfill;
     setActiveWorkoutRoutine(null);
+    setActiveWorkoutDate(TODAY);
+    setActiveWorkoutBackfill(false);
     setSelectedWorkout(null);
     setLog(null);
     setCompleted(false);
     loadAll();
-    navigation.navigate('Inicio');
+    if (!wasBackfill) navigation.navigate('Inicio');
   }
 
   // Lista ordenada por último uso (más reciente arriba)
@@ -960,6 +1085,8 @@ export default function WorkoutScreen({ navigation, route }) {
     return (
       <ActiveWorkoutScreen
         routine={activeWorkoutRoutine}
+        sessionDate={activeWorkoutDate}
+        isBackfill={activeWorkoutBackfill}
         onClose={closeActiveWorkout}
         onFinish={finishActiveWorkout}
       />
@@ -1008,7 +1135,10 @@ export default function WorkoutScreen({ navigation, route }) {
             <TextInput style={[s.createInput,{marginBottom:10}]} placeholder="Nombre de la rutina" placeholderTextColor={colors.gray} value={newRoutineName} onChangeText={v=>{setNewRoutineName(v);setCreateError('');}} />
             {/* Toggle recurrente */}
             <TouchableOpacity style={[s.recurringRow,newRoutineRecurring&&s.recurringRowOn]} onPress={()=>setNewRoutineRecurring(v=>!v)} activeOpacity={0.8}>
-              <Text style={s.recurringLabel}>{newRoutineRecurring?'📅':'🔁'} Repetir cada semana</Text>
+              <View style={s.inlineIconRow}>
+                {newRoutineRecurring ? <IconCalendar size={17} color={colors.purpleLight} /> : <IconRepeat size={17} color={colors.purpleLight} />}
+                <Text style={s.recurringLabel}>Repetir cada semana</Text>
+              </View>
               <View style={[s.recurringToggle,newRoutineRecurring&&s.recurringToggleOn]}>
                 <Text style={[s.recurringToggleTxt,newRoutineRecurring&&{color:'#fff'}]}>{newRoutineRecurring?'Sí':'No'}</Text>
               </View>
@@ -1020,7 +1150,7 @@ export default function WorkoutScreen({ navigation, route }) {
                   <TextInput style={[s.createInput,{flex:1}]} placeholder={`Ejercicio ${i+1}`} placeholderTextColor={colors.gray} value={ex} onChangeText={v=>{ const a=[...newExercises]; a[i]=v; setNewExercises(a); setCreateError(''); }} returnKeyType="next" />
                   {newExercises.length>1&&(
                     <TouchableOpacity onPress={()=>setNewExercises(prev=>prev.filter((_,j)=>j!==i))} style={s.createRemoveBtn}>
-                      <Text style={s.createRemoveTxt}>✕</Text>
+                      <IconClose size={14} color={colors.grayLight} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1054,16 +1184,16 @@ export default function WorkoutScreen({ navigation, route }) {
                   {/* T5 — flechas para reordenar en edición */}
                   <View style={{flexDirection:'column',gap:2,marginRight:2}}>
                     <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,-1)} disabled={i===0}>
-                      <Text style={[s.exOrderTxt,{fontSize:14},i===0&&{opacity:0.22}]}>↑</Text>
+                      <IconArrowUp size={14} color={i===0 ? colors.gray : colors.purpleLight} />
                     </TouchableOpacity>
                     <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,1)} disabled={i===editExercises.length-1}>
-                      <Text style={[s.exOrderTxt,{fontSize:14},i===editExercises.length-1&&{opacity:0.22}]}>↓</Text>
+                      <IconArrowDown size={14} color={i===editExercises.length-1 ? colors.gray : colors.purpleLight} />
                     </TouchableOpacity>
                   </View>
                   <TextInput style={[s.createInput,{flex:1}]} placeholder={`Ejercicio ${i+1}`} placeholderTextColor={colors.gray} value={ex} onChangeText={v=>{ const a=[...editExercises]; a[i]=v; setEditExercises(a); }} returnKeyType="next" />
                   {editExercises.length>1&&(
                     <TouchableOpacity onPress={()=>setEditExercises(prev=>prev.filter((_,j)=>j!==i))} style={s.createRemoveBtn}>
-                      <Text style={s.createRemoveTxt}>✕</Text>
+                      <IconClose size={14} color={colors.grayLight} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1093,7 +1223,9 @@ export default function WorkoutScreen({ navigation, route }) {
               <View style={s.recBadge}><Text style={s.recBadgeText}>{recommendation.label.toUpperCase()} HOY</Text></View>
               <Text style={[s.modalPhrase,{fontStyle:'italic'}]}>"{recommendation.phrase}"</Text>
               <View style={s.recExList}>{recommendation.exercises.map((ex,i)=><Text key={i} style={s.recExItem}>· {ex}</Text>)}</View>
-              <TouchableOpacity style={s.modalBtn} onPress={useRecommendedRoutine}><Text style={s.modalBtnText}>Usar esta rutina →</Text></TouchableOpacity>
+              <TouchableOpacity style={s.modalBtn} onPress={useRecommendedRoutine}>
+                <View style={s.modalBtnRow}><Text style={s.modalBtnText}>Usar esta rutina</Text><IconArrow size={16} color={colors.accentText||'#fff'} /></View>
+              </TouchableOpacity>
               <TouchableOpacity onPress={()=>setShowRecommend(false)} style={{marginTop:8}}><Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>No gracias</Text></TouchableOpacity>
             </>):null}
           </View>
@@ -1113,7 +1245,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 <Text style={s.shareSubtitle}>{shareRoutineTarget?.name||shareRoutineTarget?.day}</Text>
                 <TouchableOpacity style={s.shareCodeBox} onPress={copyShareCode} activeOpacity={0.7}>
                   <Text style={s.shareCodeText}>{shareCode}</Text>
-                  <Text style={s.shareCodeHint}>{codeCopied?'✓ Compartido!':'Tap para compartir'}</Text>
+                  <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Tap para compartir'}</Text>
                 </TouchableOpacity>
                 {shareWarning?(
                   <Text style={s.shareWarningText}>{shareWarning}</Text>
@@ -1122,7 +1254,10 @@ export default function WorkoutScreen({ navigation, route }) {
                 )}
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
                 <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
-                  <Text style={s.modalBtnText}>{codeCopied?'✓ Compartido!':'📤 Compartir código'}</Text>
+                  <View style={s.modalBtnRow}>
+                    {codeCopied ? <IconCheck size={16} color={colors.accentText||'#fff'} /> : <IconShare size={16} color={colors.accentText||'#fff'} />}
+                    <Text style={s.modalBtnText}>{codeCopied?'Compartido':'Compartir código'}</Text>
+                  </View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>setShowShareModal(false)} style={{marginTop:10}}>
                   <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
@@ -1173,7 +1308,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 </TouchableOpacity>
               ):(
                 <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purple}]} onPress={confirmImport}>
-                  <Text style={[s.createBtnTxt,{color:'#fff'}]}>Importar ✓</Text>
+                  <View style={s.inlineIconRow}><Text style={[s.createBtnTxt,{color:'#fff'}]}>Importar</Text><IconCheck size={15} color="#fff" /></View>
                 </TouchableOpacity>
               )}
             </View>
@@ -1194,16 +1329,16 @@ export default function WorkoutScreen({ navigation, route }) {
             <View style={s.bottomSheetHandle}/>
             <Text style={s.bottomSheetTitle} numberOfLines={1}>{chipMenuRoutine?.name||chipMenuRoutine?.day}</Text>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditNameModal(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>✏️  Editar nombre</Text>
+              <View style={s.bsOptionRow}><IconEditar size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Editar nombre</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditModal(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>📝  Editar ejercicios</Text>
+              <View style={s.bsOptionRow}><IconDocument size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Editar ejercicios</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); duplicateRoutine(chipMenuRoutine); }}>
-              <Text style={s.bsOptionTxt}>📋  Duplicar</Text>
+              <View style={s.bsOptionRow}><IconCopy size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Duplicar</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openShareRoutine(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>🔗  Compartir</Text>
+              <View style={s.bsOptionRow}><IconShare size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Compartir</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{
               const r=chipMenuRoutine;
@@ -1211,7 +1346,7 @@ export default function WorkoutScreen({ navigation, route }) {
               // Pequeño delay para que el bottom sheet cierre antes de abrir el confirm modal
               setTimeout(()=>confirmDeleteRoutine(r), 200);
             }}>
-              <Text style={[s.bsOptionTxt,{color:colors.danger}]}>🗑️  Eliminar</Text>
+              <View style={s.bsOptionRow}><IconEliminar size={19} color={colors.danger} /><Text style={[s.bsOptionTxt,{color:colors.danger}]}>Eliminar</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim,marginTop:4}]} onPress={()=>setShowChipMenu(false)}>
               <Text style={[s.bsOptionTxt,{color:colors.gray}]}>Cancelar</Text>
@@ -1258,10 +1393,13 @@ export default function WorkoutScreen({ navigation, route }) {
                   "{getPanchitaRoutinePhrase(routineModalDaysSince)}"
                 </Text>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginBottom:10}]} onPress={startNewSession}>
-                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>⚡ Nueva sesión</Text>
+                  <View style={s.inlineIconRow}><IconBolt size={16} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>Nueva sesión</Text></View>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purple,marginBottom:10}]} onPress={()=>openPastSessionModal(routineModalTarget)}>
+                  <View style={s.inlineIconRow}><IconCalendar size={16} color={colors.purpleLight} /><Text style={[s.createBtnTxt,{color:colors.purpleLight}]}>Registrar sesión pasada</Text></View>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purpleDim,marginBottom:6}]} onPress={()=>setShowHistoryView(true)}>
-                  <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>📊 Ver historial</Text>
+                  <View style={s.inlineIconRow}><IconHistory size={16} color={colors.grayLight} /><Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Ver historial</Text></View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>setShowRoutineModal(false)} style={{alignItems:'center',paddingVertical:10}}>
                   <Text style={{color:colors.gray,fontSize:13}}>Cancelar</Text>
@@ -1271,7 +1409,7 @@ export default function WorkoutScreen({ navigation, route }) {
             {showHistoryView&&!historyDetailLog&&(
               <>
                 <TouchableOpacity onPress={()=>setShowHistoryView(false)} style={{marginBottom:10}}>
-                  <Text style={{color:colors.purple,fontSize:14}}>← Volver</Text>
+                  <View style={s.backLinkRow}><IconBack size={15} color={colors.purple} /><Text style={{color:colors.purple,fontSize:14}}>Volver</Text></View>
                 </TouchableOpacity>
                 <Text style={[s.modalTitle,{marginBottom:12,textAlign:'left'}]}>Historial</Text>
                 {historyLogs.length===0?(
@@ -1288,7 +1426,7 @@ export default function WorkoutScreen({ navigation, route }) {
                             {(hl.exercises||[]).length} ejercicios · {(hl.exercises||[]).reduce((n,ex)=>n+(ex.sets||[]).filter(st=>st.done).length,0)} sets completados
                           </Text>
                         </View>
-                        <Text style={{color:colors.purple,fontSize:18,paddingLeft:8}}>›</Text>
+                        <IconArrow size={18} color={colors.purple} />
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
@@ -1301,7 +1439,7 @@ export default function WorkoutScreen({ navigation, route }) {
             {historyDetailLog&&(
               <>
                 <TouchableOpacity onPress={()=>setHistoryDetailLog(null)} style={{marginBottom:10}}>
-                  <Text style={{color:colors.purple,fontSize:14}}>← Volver al historial</Text>
+                  <View style={s.backLinkRow}><IconBack size={15} color={colors.purple} /><Text style={{color:colors.purple,fontSize:14}}>Volver al historial</Text></View>
                 </TouchableOpacity>
                 <Text style={[s.modalTitle,{marginBottom:4,textAlign:'left'}]}>{formatLogDate(historyDetailLog.date)}</Text>
                 <Text style={{color:colors.gray,fontSize:12,marginBottom:12}}>
@@ -1313,17 +1451,66 @@ export default function WorkoutScreen({ navigation, route }) {
                       <Text style={{color:colors.purpleLight,fontWeight:'700',marginBottom:4}}>{ex.name}</Text>
                       {(ex.sets||[]).map((st,si)=>(
                         <Text key={si} style={s.recExItem}>
-                          Set {si+1}: {st.reps||'—'} reps × {st.weight||'—'} {ex.unit||'kg'}{st.done?' ✓':''}
+                          Set {si+1}: {st.reps||'—'} reps × {st.weight||'—'} {ex.unit||'kg'}{st.done?' completado':''}
                         </Text>
                       ))}
                     </View>
                   ))}
                 </ScrollView>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginTop:12}]} onPress={startNewSession}>
-                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>⚡ Nueva sesión con esta rutina</Text>
+                  <View style={s.inlineIconRow}><IconBolt size={16} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>Nueva sesión con esta rutina</Text></View>
                 </TouchableOpacity>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Registrar sesión pasada ── */}
+      <Modal visible={showPastDateModal} transparent animationType="slide" onRequestClose={()=>setShowPastDateModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalCard,{width:'92%',padding:20,alignItems:'stretch'}]}>
+            <Panchita state="thinking" size={82} autoWave={false} />
+            <Text style={[s.modalTitle,{marginBottom:4}]}>Registrar sesión pasada</Text>
+            <Text style={[s.modalPhrase,{marginBottom:10}]}>
+              {pastRoutineTarget?.name || pastRoutineTarget?.day || 'Rutina'}
+            </Text>
+            <Text style={s.pastDatePreview}>{formatDateDisplay(selectedPastIso())}</Text>
+
+            <View style={s.pastWheelRow}>
+              <View style={s.pastWheelCol}>
+                <Text style={s.pastWheelLabel}>Día</Text>
+                <WheelPicker items={pastDays} selectedIndex={pastSafeDayIdx} onSelect={setPastDayIdx} width={58} colors={colors} />
+              </View>
+              <View style={s.pastWheelCol}>
+                <Text style={s.pastWheelLabel}>Mes</Text>
+                <WheelPicker items={Array.from({length:12},(_,i)=>i+1)} selectedIndex={pastMonthIdx} onSelect={setPastMonthIdx} width={58} colors={colors} />
+              </View>
+              <View style={s.pastWheelCol}>
+                <Text style={s.pastWheelLabel}>Año</Text>
+                <WheelPicker items={pastYears} selectedIndex={pastYearIdx} onSelect={setPastYearIdx} width={76} colors={colors} />
+              </View>
+            </View>
+
+            {selectedPastIso() > TODAY && (
+              <View style={s.pastWarning}>
+                <IconWarning size={15} color={colors.danger} />
+                <Text style={s.pastWarningTxt}>No se puede elegir una fecha futura.</Text>
+              </View>
+            )}
+
+            <View style={{flexDirection:'row',gap:10,marginTop:16}}>
+              <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purpleDim}]} onPress={()=>setShowPastDateModal(false)}>
+                <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.createBtn,{flex:1,backgroundColor:colors.purple},selectedPastIso()>TODAY&&{opacity:0.5}]}
+                onPress={startPastSession}
+                disabled={selectedPastIso()>TODAY}
+              >
+                <View style={s.inlineIconRow}><IconCalendar size={15} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>Abrir sesión</Text></View>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1339,7 +1526,7 @@ export default function WorkoutScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-          <Text style={s.recommendBtnIcon}>✨</Text>
+          <IconStar size={20} color={colors.lime} />
         </TouchableOpacity>
       </View>
 
@@ -1347,17 +1534,24 @@ export default function WorkoutScreen({ navigation, route }) {
       <View style={s.activeBar}>
         {selectedWorkout&&log ? (
           <Text style={s.activeName} numberOfLines={1} ellipsizeMode="tail">
-            {selectedWorkout.isRecurring?'📅 ':''}{selectedWorkout.name||selectedWorkout.day}
+            {selectedWorkout.name||selectedWorkout.day}
           </Text>
         ) : (
           <Text style={s.activeName} numberOfLines={1}>{syncing ? 'Cargando...' : 'Seleccioná una rutina'}</Text>
         )}
         {syncing&&<Text style={s.syncHint}>↻ Sincronizando</Text>}
-        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>📴 Local</Text>}
+        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>Local</Text>}
         {!syncing&&!usingLocalData&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
-        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓ Guardado</Text>}
-        {!syncing&&autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:'#ef4444'}]}>⚠ Error</Text>}
+        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<View style={s.statusPill}><IconCheck size={12} color={colors.lime} /><Text style={s.autoSaveHint}>Guardado</Text></View>}
+        {!syncing&&autoSaveState==='error'&&<View style={s.statusPill}><IconWarning size={12} color="#ef4444" /><Text style={[s.autoSaveHint,{color:'#ef4444'}]}>Error</Text></View>}
       </View>
+
+      {deletingRoutineId && (
+        <View style={s.deletingBanner}>
+          <ActivityIndicator size="small" color={colors.purpleLight} />
+          <Text style={s.deletingText}>Eliminando {deletingRoutineName}...</Text>
+        </View>
+      )}
 
       {/* T1 — Lista vertical de rutinas */}
       {initialLoading ? (
@@ -1382,14 +1576,14 @@ export default function WorkoutScreen({ navigation, route }) {
                 <TouchableOpacity key={w.id} style={[s.routineRow, isSelected&&s.routineRowActive]} onPress={()=>openRoutineModal(w)} activeOpacity={0.75}>
                   <View style={{flex:1,gap:2}}>
                     <Text style={[s.routineRowName, isSelected&&s.routineRowNameActive]} numberOfLines={1}>
-                      {w.isRecurring?'📅 ':''}{w.name||w.day}
+                      {w.name||w.day}
                     </Text>
                     <Text style={s.routineRowMeta}>
                       {exCount} ejercicio{exCount!==1?'s':''}{lastUsed?` · ${formatLogDate(lastUsed)}`:''}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.routineRowMenu} activeOpacity={0.6}>
-                    <Text style={[s.routineRowMenuTxt,isSelected&&{color:'rgba(255,255,255,0.75)'}]}>⋯</Text>
+                    <IconMenuDots size={20} color={isSelected ? 'rgba(255,255,255,0.75)' : colors.gray} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               );
@@ -1399,7 +1593,7 @@ export default function WorkoutScreen({ navigation, route }) {
             )}
           </ScrollView>
           <TouchableOpacity style={s.importRowBtn} onPress={openImportModal} activeOpacity={0.7}>
-            <Text style={s.importRowBtnTxt}>⬇ Importar código de rutina</Text>
+            <View style={s.inlineIconRow}><IconDownload size={16} color={colors.purpleLight} /><Text style={s.importRowBtnTxt}>Importar código de rutina</Text></View>
           </TouchableOpacity>
         </View>
       )}
@@ -1433,7 +1627,7 @@ export default function WorkoutScreen({ navigation, route }) {
 
         {log&&completed&&(
           <View style={s.completedBanner}>
-            <Text style={s.completedText}>Sesión completada hoy ✓</Text>
+            <View style={s.inlineIconRow}><IconCheck size={15} color={colors.lime} /><Text style={s.completedText}>Sesión completada hoy</Text></View>
           </View>
         )}
 
@@ -1465,14 +1659,14 @@ export default function WorkoutScreen({ navigation, route }) {
                   </TouchableOpacity>
                 ))}
               </View>
-              {/* T5 — flechas ↑↓ para reordenar */}
+              {/* T5 — flechas para reordenar */}
               <TouchableOpacity
                 style={s.exOrderBtn}
                 onPress={()=>moveExercise(exIdx,-1)}
                 activeOpacity={0.6}
                 disabled={exIdx===0}
               >
-                <Text style={[s.exOrderTxt,exIdx===0&&{opacity:0.22}]}>↑</Text>
+                <IconArrowUp size={15} color={exIdx===0 ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.exOrderBtn}
@@ -1480,7 +1674,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 activeOpacity={0.6}
                 disabled={exIdx===(log?.exercises?.length-1)}
               >
-                <Text style={[s.exOrderTxt,exIdx===(log?.exercises?.length-1)&&{opacity:0.22}]}>↓</Text>
+                <IconArrowDown size={15} color={exIdx===(log?.exercises?.length-1) ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               {/* Botón ✕ — 44×44, usa ConfirmModal */}
               <TouchableOpacity
@@ -1494,7 +1688,7 @@ export default function WorkoutScreen({ navigation, route }) {
                   onConfirm: () => { hideConfirm(); removeExercise(exIdx); },
                 })}
               >
-                <Text style={s.exRemoveTxt}>✕</Text>
+                <IconClose size={16} color={colors.danger} />
               </TouchableOpacity>
             </View>
 
@@ -1517,9 +1711,7 @@ export default function WorkoutScreen({ navigation, route }) {
                       activeOpacity={0.7}
                     >
                       <View style={[s.setCircle, isDone&&s.setCircleDone]}>
-                        <Text style={[s.setCircleTxt, isDone&&s.setCircleTxtDone]}>
-                          {isDone ? '✓' : setIdx+1}
-                        </Text>
+                        {isDone ? <IconCheck size={14} color="#fff" /> : <Text style={s.setCircleTxt}>{setIdx+1}</Text>}
                       </View>
                       <Text style={[s.setLabel, isDone&&s.setLabelDone]}>
                         {isDone ? 'Completado' : `Set ${setIdx+1}`}
@@ -1532,9 +1724,11 @@ export default function WorkoutScreen({ navigation, route }) {
                       onPress={()=>removeSet(exIdx,setIdx)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>
-                        {isOnly ? 'limpiar' : '−'}
-                      </Text>
+                      {isOnly ? (
+                        <Text style={[s.setDelTxt, s.setDelTxtSoft]}>limpiar</Text>
+                      ) : (
+                        <IconClose size={14} color={colors.grayLight} />
+                      )}
                     </TouchableOpacity>
                   </View>
 
@@ -1692,12 +1886,18 @@ function createStyles(colors) {
     modeTabTextActive: { color:'#fff' },
     recommendBtn: { width:40, height:40, borderRadius:20, backgroundColor:colors.purpleDim, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple },
     recommendBtnIcon: { fontSize:20 },
+    inlineIconRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
+    modalBtnRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
+    backLinkRow: { flexDirection:'row', alignItems:'center', gap:6 },
 
     // Barra activa
     activeBar: { paddingHorizontal:14, paddingVertical:8, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, flexDirection:'row', alignItems:'center', justifyContent:'space-between', minHeight:40 },
     activeName: { fontSize:14, fontWeight:'700', color:colors.purpleLight, flex:1, marginRight:8 },
     syncHint: { fontSize:11, color:colors.purple, marginLeft:8 },
     autoSaveHint: { fontSize:11, color:colors.gray, marginLeft:8 },
+    statusPill: { flexDirection:'row', alignItems:'center', gap:3, marginLeft:8 },
+    deletingBanner: { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:14, paddingVertical:9, backgroundColor:colors.bgInput, borderBottomWidth:1, borderBottomColor:colors.purpleDim },
+    deletingText: { color:colors.grayLight, fontSize:12, fontWeight:'700', flex:1 },
 
     // Selector rutinas
     dayScroll: { paddingHorizontal:14, paddingVertical:8, maxHeight:52 },
@@ -1826,6 +2026,12 @@ function createStyles(colors) {
     recBadgeText: { color:'#fff', fontWeight:'800', fontSize:12, letterSpacing:1 },
     recExList: { alignSelf:'stretch', backgroundColor:colors.bgInput, borderRadius:RADIUS.md, padding:12 },
     recExItem: { fontSize:13, color:colors.white, lineHeight:22 },
+    pastDatePreview: { alignSelf:'center', backgroundColor:colors.bgInput, borderRadius:RADIUS.full, borderWidth:1, borderColor:colors.purpleDim, paddingHorizontal:16, paddingVertical:8, color:colors.white, fontSize:18, fontWeight:'900', marginBottom:14 },
+    pastWheelRow: { flexDirection:'row', justifyContent:'center', gap:12, marginTop:2 },
+    pastWheelCol: { alignItems:'center', gap:7 },
+    pastWheelLabel: { fontSize:11, fontWeight:'800', color:colors.gray, textTransform:'uppercase', letterSpacing:1 },
+    pastWarning: { marginTop:12, flexDirection:'row', alignItems:'center', justifyContent:'center', gap:6 },
+    pastWarningTxt: { color:colors.danger, fontSize:12, fontWeight:'700' },
 
     // Crear / editar rutina
     createLabel: { fontSize:13, fontWeight:'700', color:colors.grayLight, alignSelf:'flex-start' },
@@ -1866,6 +2072,7 @@ function createStyles(colors) {
     bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
     bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
     bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
+    bsOptionRow: { flexDirection:'row', alignItems:'center', gap:11 },
     bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
 
     // ✕ ejercicio — esquina superior derecha, 44×44 sin hitSlop

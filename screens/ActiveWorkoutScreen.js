@@ -7,10 +7,10 @@ import {
 import { Share } from 'react-native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getLogs, saveLog, getWeightUnit, getRestTimerSeconds, shareRoutine } from '../storage';
+import { getLogs, saveLog, getWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, shareRoutine } from '../storage';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
-import { IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
+import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
@@ -92,8 +92,14 @@ function convertWeightValue(val, from, to) {
 }
 
 // ─── Componente principal ──────────────────────────────────
-// Props: routine (object), onClose () => void, onFinish () => void
-export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
+function formatSessionDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// Props: routine (object), sessionDate (YYYY-MM-DD), isBackfill, onClose () => void, onFinish () => void
+export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBackfill = false, onClose, onFinish }) {
   const { colors } = useTheme();
   const s = useMemo(()=>createStyles(colors),[colors]);
 
@@ -136,6 +142,23 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
   const restIntervalRef = useRef(null);
   const lastSavedLogRef  = useRef('');
 
+  const formatRestTime = useCallback((seconds) => {
+    const safe = Math.max(0, seconds || 0);
+    return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
+  }, []);
+
+  const startRestTimer = useCallback((seconds = restTimerSeconds) => {
+    const normalized = Math.max(1, parseInt(seconds, 10) || 90);
+    setRestLeft(normalized);
+  }, [restTimerSeconds]);
+
+  const activateRestTimer = useCallback(async () => {
+    const fallback = 90;
+    setRestTimerSeconds(fallback);
+    setRestLeft(fallback);
+    saveRestTimerSeconds(fallback).catch(() => {});
+  }, []);
+
   // Cargar preferencias una vez
   useEffect(()=>{
     getWeightUnit().then(u=>setWeightUnit(u));
@@ -148,7 +171,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
     initSession(routine);
     return ()=>{ if(autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[routine?.id]);
+  },[routine?.id, sessionDate]);
 
   // Cleanup al desmontar
   useEffect(()=>()=>{
@@ -215,11 +238,13 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
 
   // ─── Iniciar sesión ───────────────────────────────────────
   async function initSession(workout) {
+    const targetDate = sessionDate || TODAY;
     const exerciseNames = normalizeExercises(workout.exercises);
     const blankLog = {
-      date: TODAY,
+      date: targetDate,
       workoutId: workout.id,
       workoutName: workout.name || workout.day,
+      backfilled: !!isBackfill,
       completed: false,
       exercises: exerciseNames.map(name=>({ name, unit: weightUnit, sets:[{ reps:'', weight:'' }] })),
     };
@@ -232,22 +257,23 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
     try {
       const logs = await getLogs();
       const last = logs
-        .filter(l=>l.workoutId===workout.id && l.completed)
+        .filter(l=>l.workoutId===workout.id && l.completed && l.date < targetDate)
         .sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
       setLastLog(last);
 
-      const todayLog = logs.find(l=>l.date===TODAY && l.workoutId===workout.id);
-      if (todayLog) {
+      const existingLog = logs.find(l=>l.date===targetDate && l.workoutId===workout.id);
+      if (existingLog) {
         const validatedLog = {
-          ...todayLog,
-          exercises: (todayLog.exercises||[]).map((ex,i)=>({
+          ...existingLog,
+          backfilled: existingLog.backfilled ?? !!isBackfill,
+          exercises: (existingLog.exercises||[]).map((ex,i)=>({
             ...ex,
             name: ex.name || exerciseNames[i] || `Ejercicio ${i+1}`,
             unit: ex.unit || weightUnit,
           })),
         };
         setLog(validatedLog);
-        setCompleted(todayLog.completed);
+        setCompleted(existingLog.completed);
         lastSavedLogRef.current = logSignature(validatedLog);
         setAutoSaveState('saved');
       } else if (workout.isRecurring && last) {
@@ -307,12 +333,12 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
         const phrase = SET_PHRASES[Math.floor(Math.random()*SET_PHRASES.length)];
         setReactionPhrase(phrase);
         setPanchitaReaction(true);
-        if (restTimerSeconds > 0) setRestLeft(restTimerSeconds);
+        if (restTimerSeconds > 0) startRestTimer(restTimerSeconds);
         setTimeout(()=>setPanchitaReaction(false),2500);
       }
       return updated;
     });
-  },[]);
+  },[restTimerSeconds, startRestTimer]);
 
   const removeSet = useCallback((exIdx, setIdx)=>{
     setLog(prev=>{
@@ -384,7 +410,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
   async function finishWorkout() {
     if (!log) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    const finishedLog = { ...log, completed:true };
+    const finishedLog = { ...log, date: sessionDate || log.date, backfilled: !!isBackfill || !!log.backfilled, completed:true };
     setSaving(true);
     try {
       await saveLog(finishedLog);
@@ -392,7 +418,9 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
       setAutoSaveState('saved');
       setLog(finishedLog);
       setCompleted(true);
-      const phrase = COMPLETION_PHRASES[Math.floor(Math.random()*COMPLETION_PHRASES.length)];
+      const phrase = isBackfill
+        ? 'Sesión pasada registrada. El historial acepta confesiones tardías.'
+        : COMPLETION_PHRASES[Math.floor(Math.random()*COMPLETION_PHRASES.length)];
       setCompletionPhrase(phrase);
       setShowCompletion(true);
     } catch(e) {
@@ -479,7 +507,10 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
           <IconBack size={20} color={colors.purpleLight} />
           <Text style={s.headerBackTxt}>Volver</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle} numberOfLines={1}>{routine?.name||routine?.day||''}</Text>
+        <View style={s.headerCenter}>
+          <Text style={s.headerTitle} numberOfLines={1}>{routine?.name||routine?.day||''}</Text>
+          {isBackfill && <Text style={s.headerDate}>Sesión pasada · {formatSessionDate(sessionDate)}</Text>}
+        </View>
         <TouchableOpacity onPress={()=>setShowMenu(true)} style={s.headerMenuBtn} activeOpacity={0.7}>
           <IconMenuDots size={22} color={colors.gray} />
         </TouchableOpacity>
@@ -493,13 +524,14 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
         {completed&&<View style={s.saveBarInline}><IconCheck size={14} color={colors.lime||'#a3e635'} /><Text style={[s.saveBarTxt,{color:colors.lime||'#a3e635'}]}>Sesión completada</Text></View>}
       </View>
 
-      {restLeft > 0 && (
-        <View style={s.restTimerCard}>
+      <View style={[s.restTimerCard, restLeft <= 0 && s.restTimerCardIdle]}>
+        {restLeft > 0 ? (
+          <>
           <View style={s.restTimerLeft}>
             <IconTimer size={24} color={colors.purpleLight} />
             <View>
               <Text style={s.restTimerLabel}>Descanso</Text>
-              <Text style={s.restTimerTime}>{Math.floor(restLeft/60)}:{String(restLeft%60).padStart(2,'0')}</Text>
+              <Text style={s.restTimerTime}>{formatRestTime(restLeft)}</Text>
             </View>
           </View>
           <View style={s.restTimerActions}>
@@ -510,18 +542,38 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
               <Text style={s.restTimerMiniTxt}>Saltar</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      )}
+          </>
+        ) : (
+          <>
+          <View style={s.restTimerLeft}>
+            <IconTimer size={21} color={restTimerSeconds > 0 ? colors.purpleLight : colors.gray} />
+            <View>
+              <Text style={s.restTimerLabel}>Timer de descanso</Text>
+              <Text style={s.restTimerHint}>
+                {restTimerSeconds > 0 ? `${formatRestTime(restTimerSeconds)} listo al completar un set` : 'Apagado'}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[s.restTimerStartBtn, restTimerSeconds <= 0 && s.restTimerStartBtnOff]}
+            onPress={restTimerSeconds > 0 ? () => startRestTimer(restTimerSeconds) : activateRestTimer}
+            activeOpacity={0.75}
+          >
+            <Text style={s.restTimerStartTxt}>{restTimerSeconds > 0 ? 'Iniciar' : 'Activar'}</Text>
+          </TouchableOpacity>
+          </>
+        )}
+      </View>
 
       {/* Modal completado */}
       <Modal visible={showCompletion} transparent animationType="fade">
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <Panchita state="happy" size={100}/>
-            <Text style={s.modalTitle}>Rutina completada</Text>
+            <Text style={s.modalTitle}>{isBackfill ? 'Sesión registrada' : 'Rutina completada'}</Text>
             <Text style={s.modalPhrase}>{completionPhrase}</Text>
             <TouchableOpacity style={s.modalBtn} onPress={()=>{ setShowCompletion(false); onFinish?.(); }}>
-              <Text style={s.modalBtnText}>Volver al inicio</Text>
+              <Text style={s.modalBtnText}>{isBackfill ? 'Volver a rutinas' : 'Volver al inicio'}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={()=>setShowCompletion(false)} style={{marginTop:4}}>
               <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Seguir viendo</Text>
@@ -659,10 +711,10 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                 ))}
               </View>
               <TouchableOpacity style={s.exOrderBtn} onPress={()=>moveExercise(exIdx,-1)} activeOpacity={0.6} disabled={exIdx===0}>
-                <Text style={[s.exOrderTxt,exIdx===0&&{opacity:0.22}]}>↑</Text>
+                <IconArrowUp size={15} color={exIdx===0 ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity style={s.exOrderBtn} onPress={()=>moveExercise(exIdx,1)} activeOpacity={0.6} disabled={exIdx===(log?.exercises?.length-1)}>
-                <Text style={[s.exOrderTxt,exIdx===(log?.exercises?.length-1)&&{opacity:0.22}]}>↓</Text>
+                <IconArrowDown size={15} color={exIdx===(log?.exercises?.length-1) ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.exRemoveBtn} activeOpacity={0.7}
@@ -777,7 +829,9 @@ function createStyles(colors) {
     header: { flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingVertical:12, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, minHeight:52 },
     headerBack: { flexDirection:'row', alignItems:'center', gap:5, paddingVertical:8, paddingRight:12, minWidth:80 },
     headerBackTxt: { color:colors.purpleLight, fontSize:14, fontWeight:'600' },
-    headerTitle: { flex:1, fontSize:16, fontWeight:'700', color:colors.white, textAlign:'center' },
+    headerCenter: { flex:1, alignItems:'center', justifyContent:'center' },
+    headerTitle: { fontSize:16, fontWeight:'700', color:colors.white, textAlign:'center', maxWidth:'100%' },
+    headerDate: { marginTop:2, fontSize:10, fontWeight:'700', color:colors.purpleLight },
     headerMenuBtn: { minWidth:80, height:44, alignItems:'flex-end', justifyContent:'center', paddingLeft:12 },
     headerMenuTxt: { fontSize:22, color:colors.gray, fontWeight:'900', paddingRight:4 },
 
@@ -785,13 +839,18 @@ function createStyles(colors) {
     saveBar: { height:26, paddingHorizontal:14, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, justifyContent:'center', alignItems:'flex-end' },
     saveBarTxt: { fontSize:11, color:colors.gray },
     saveBarInline: { flexDirection:'row', alignItems:'center', gap:5 },
-    restTimerCard: { marginHorizontal:12, marginTop:10, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, borderWidth:1, borderColor:colors.purple, padding:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
+    restTimerCard: { marginHorizontal:12, marginTop:8, marginBottom:2, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, borderWidth:1, borderColor:colors.purple, padding:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between', gap:10 },
+    restTimerCardIdle: { borderColor:colors.purpleDim, paddingVertical:9 },
     restTimerLeft: { flexDirection:'row', alignItems:'center', gap:10 },
     restTimerLabel: { color:colors.gray, fontSize:11, fontWeight:'700', textTransform:'uppercase', letterSpacing:1 },
     restTimerTime: { color:colors.white, fontSize:24, fontWeight:'900', marginTop:1 },
+    restTimerHint: { color:colors.grayLight, fontSize:12, fontWeight:'700', marginTop:1 },
     restTimerActions: { flexDirection:'row', gap:8 },
     restTimerMiniBtn: { backgroundColor:colors.bgInput, borderRadius:RADIUS.full, paddingVertical:8, paddingHorizontal:10, borderWidth:1, borderColor:colors.purpleDim },
     restTimerMiniTxt: { color:colors.purpleLight, fontSize:12, fontWeight:'800' },
+    restTimerStartBtn: { backgroundColor:colors.purple, borderRadius:RADIUS.full, paddingVertical:9, paddingHorizontal:14, minWidth:76, alignItems:'center' },
+    restTimerStartBtnOff: { backgroundColor:colors.purpleDim, borderWidth:1, borderColor:colors.purple },
+    restTimerStartTxt: { color:colors.accentText||'#fff', fontSize:12, fontWeight:'900' },
 
     // Autosave popup
     autosavePop: { position:'absolute', bottom:88, left:12, flexDirection:'row', alignItems:'center', gap:8, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:10, borderWidth:1, borderColor:colors.purpleDim, zIndex:999, maxWidth:'72%', shadowColor:'#7c3aed', shadowOpacity:0.3, shadowRadius:6, elevation:8 },

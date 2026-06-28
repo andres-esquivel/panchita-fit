@@ -13,6 +13,7 @@ import {
   getBodyWeights, getWeeklyFrequency,
 } from '../storage';
 import Panchita from '../components/Panchita';
+import { IconRefresh, IconSearch } from '../components/icons';
 import { GROQ_API_KEY, GROQ_MODEL } from '../config';
 
 const SUGGESTIONS = [
@@ -471,7 +472,7 @@ export default function CoachScreen({ route }) {
           {analyzingProgress ? (
             <ActivityIndicator size="small" color={colors.purpleLight} style={{ marginRight: 8 }} />
           ) : (
-            <Text style={s.analyzeIcon}>🔍</Text>
+            <IconSearch size={15} color={colors.purpleLight} />
           )}
           <Text style={s.analyzeBtnText}>
             {analyzingProgress ? 'Analizando tu historial...' : '¿Cómo voy, Panchita?'}
@@ -509,7 +510,7 @@ export default function CoachScreen({ route }) {
           {/* Botón de reintentar */}
           {lastError && !loading && (
             <TouchableOpacity style={s.retryBtn} onPress={retryLastMessage}>
-              <Text style={s.retryBtnText}>🔄 Reintentar</Text>
+              <View style={s.retryBtnRow}><IconRefresh size={15} color={colors.purpleLight} /><Text style={s.retryBtnText}>Reintentar</Text></View>
             </TouchableOpacity>
           )}
         </ScrollView>
@@ -596,6 +597,7 @@ function createStyles(colors) {
 
     // Retry
     retryBtn:          { alignSelf: 'center', marginTop: 4, paddingVertical: 8, paddingHorizontal: 20, borderRadius: RADIUS.full, backgroundColor: colors.purpleDim, borderWidth: 1, borderColor: colors.purple },
+    retryBtnRow:       { flexDirection:'row', alignItems:'center', gap:6 },
     retryBtnText:      { color: colors.purpleLight, fontWeight: '700', fontSize: 13 },
 
     suggestScroll:     { paddingTop: 8, paddingBottom: 10, flexGrow: 0 },

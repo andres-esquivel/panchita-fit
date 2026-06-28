@@ -11,17 +11,24 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.panchitafit.app"
+      "bundleIdentifier": "com.panchitafit.app",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0f0a1e"
+        "backgroundColor": "#0f0a1e",
+        "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "com.panchitafit.app"
     },
     "plugins": [
       "expo-asset",
       "expo-font"
-    ]
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "PanchitaFit",
+      "shortName": "PanchitaFit"
+    }
   }
 }
