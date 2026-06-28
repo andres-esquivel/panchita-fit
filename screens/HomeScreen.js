@@ -5,7 +5,10 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getUser, getWeekActivity, getLogs } from '../storage';
+import { getUser, getWeekActivity, getLogs, getWeekSchedule } from '../storage';
+
+// Días: getDay() → 0=Dom,1=Lun,...,6=Sáb → claves del schedule
+const DAY_KEYS_BY_GETDAY = ['D','L','M','X','J','V','S'];
 import Panchita from '../components/Panchita';
 
 const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -53,12 +56,16 @@ export default function HomeScreen({ navigation }) {
   const [streak, setStreak]               = useState(0);
   const [totalSessions, setTotalSessions] = useState(0);
   const [mood, setMood]                   = useState('idle');
+  const [todaySchedule, setTodaySchedule] = useState(undefined); // undefined=cargando, null=no asignado, 'rest', {id,name}
 
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
   async function loadData() {
     try {
-      const [u, activity, logs] = await Promise.all([getUser(), getWeekActivity(), getLogs()]);
+      const [u, activity, logs, schedule] = await Promise.all([
+        getUser(), getWeekActivity(), getLogs(),
+        getWeekSchedule().catch(()=>({})),
+      ]);
       setUser(u);
       setWeekActivity(activity);
       const m = getHomeMood(logs);
@@ -70,9 +77,13 @@ export default function HomeScreen({ navigation }) {
         if (day.trained) s++; else break;
       }
       setStreak(s);
+      // T3 — programación semanal: leer el día de hoy
+      const todayKey = DAY_KEYS_BY_GETDAY[new Date().getDay()];
+      setTodaySchedule(schedule[todayKey] ?? null);
     } catch (e) {
       console.log('HomeScreen loadData error:', e);
       setInsight(randomPhrase('idle'));
+      setTodaySchedule(null);
     }
   }
 
@@ -119,6 +130,47 @@ export default function HomeScreen({ navigation }) {
             </View>
           </View>
         </View>
+
+        {/* T3 — Entrenamiento de hoy */}
+        {todaySchedule !== undefined && (
+          todaySchedule === 'rest' ? (
+            <View style={s.todayCard}>
+              <Text style={s.todayCardEmoji}>💤</Text>
+              <View style={{flex:1}}>
+                <Text style={s.todayCardTitle}>Hoy descansás.</Text>
+                <Text style={s.todayCardSub}>O eso dijiste.</Text>
+              </View>
+            </View>
+          ) : todaySchedule ? (
+            <View style={s.todayCard}>
+              <Text style={s.todayCardEmoji}>💪</Text>
+              <View style={{flex:1}}>
+                <Text style={s.todayCardTitle}>Hoy toca: {todaySchedule.name}</Text>
+                <Text style={s.todayCardSub}>¿Arrancamos?</Text>
+              </View>
+              <TouchableOpacity
+                style={s.todayCardBtn}
+                onPress={()=>navigation.navigate('Workout',{selectRoutineId:todaySchedule.id})}
+              >
+                <Text style={s.todayCardBtnTxt}>Ir →</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[s.todayCard,{opacity:0.7}]}>
+              <Text style={s.todayCardEmoji}>🤔</Text>
+              <View style={{flex:1}}>
+                <Text style={s.todayCardTitle}>¿Qué entrenás hoy?</Text>
+                <Text style={s.todayCardSub}>No hay rutina asignada</Text>
+              </View>
+              <TouchableOpacity
+                style={s.todayCardBtn}
+                onPress={()=>navigation.navigate('Workout')}
+              >
+                <Text style={s.todayCardBtnTxt}>Ver →</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        )}
 
         {/* Actividad semanal */}
         <Text style={s.sectionTitle}>Esta semana</Text>
@@ -209,5 +261,20 @@ function createStyles(colors) {
     statLabel:      { fontSize: 11, color: colors.gray, marginTop: 2, textAlign: 'center' },
     trainBtn:       { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 18, alignItems: 'center' },
     trainBtnText:   { color: '#ffffff', fontWeight: '700', fontSize: 16 },
+
+    // T3 — tarjeta entrenamiento de hoy
+    todayCard: {
+      backgroundColor: colors.bgCard, borderRadius: RADIUS.lg,
+      padding: 14, marginBottom: 20, borderWidth: 1, borderColor: colors.purple,
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+    },
+    todayCardEmoji: { fontSize: 28 },
+    todayCardTitle: { fontSize: 15, fontWeight: '700', color: colors.white },
+    todayCardSub:   { fontSize: 12, color: colors.gray, marginTop: 2 },
+    todayCardBtn: {
+      backgroundColor: colors.purple, borderRadius: RADIUS.full,
+      paddingVertical: 8, paddingHorizontal: 14,
+    },
+    todayCardBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
   });
 }

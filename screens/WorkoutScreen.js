@@ -181,7 +181,7 @@ function calcLogVolume(log) {
 }
 
 // ─── Componente principal ──────────────────────────────────
-export default function WorkoutScreen({ navigation }) {
+export default function WorkoutScreen({ navigation, route }) {
   const { colors } = useTheme();
   const s = useMemo(()=>createStyles(colors),[colors]);
 
@@ -277,6 +277,11 @@ export default function WorkoutScreen({ navigation }) {
   const [importPreview, setImportPreview]     = useState(null);
   const [importError, setImportError]         = useState('');
 
+  // T1 — último uso por rutina (derivado de logs)
+  const [lastUsedMap, setLastUsedMap] = useState({});
+  // T4 — aviso si Firestore falló al compartir
+  const [shareWarning, setShareWarning] = useState('');
+
   const autoSaveTimerRef = useRef(null);
   const lastSavedLogRef  = useRef('');
   const selectedWorkoutRef = useRef(null); // para acceso en closures async
@@ -289,6 +294,34 @@ export default function WorkoutScreen({ navigation }) {
   useEffect(()=>{
     getWeightUnit().then(u=>{ setWeightUnit(u); prevWeightUnitRef.current=u; });
   },[]);
+
+  // T1 — computar último uso por rutina desde logs
+  useEffect(()=>{
+    if (customRoutines.length===0) return;
+    getLogs().then(logs=>{
+      const map={};
+      for (const log of logs) {
+        if (log.completed && log.workoutId) {
+          if (!map[log.workoutId] || log.date > map[log.workoutId]) {
+            map[log.workoutId] = log.date;
+          }
+        }
+      }
+      setLastUsedMap(map);
+    }).catch(()=>{});
+  },[customRoutines.length]);
+
+  // T3 — abrir rutina específica desde HomeScreen vía navigation params
+  useEffect(()=>{
+    const selectId = route?.params?.selectRoutineId;
+    if (!selectId || customRoutines.length===0) return;
+    const target = customRoutines.find(r=>r.id===selectId);
+    if (target) {
+      openRoutineModal(target);
+      navigation.setParams({ selectRoutineId: undefined });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[route?.params?.selectRoutineId, customRoutines.length]);
 
   // Nota: la unidad global (weightUnit) solo es el default para ejercicios nuevos.
   // Cada ejercicio tiene su propia unidad (ex.unit). Ver T2.
@@ -537,6 +570,17 @@ export default function WorkoutScreen({ navigation }) {
     });
   },[]);
 
+  // T5 — mover ejercicio en sesión activa
+  const moveExercise = useCallback((exIdx, dir)=>{
+    setLog(prev=>{
+      const exs = [...(prev.exercises||[])];
+      const target = exIdx + dir;
+      if (target < 0 || target >= exs.length) return prev;
+      [exs[exIdx], exs[target]] = [exs[target], exs[exIdx]];
+      return { ...prev, exercises: exs };
+    });
+  },[]);
+
   // ─── Agregar ejercicio a sesión activa ───────────────────
   function addExerciseToSession(name) {
     const trimmed = (name||'').trim();
@@ -660,6 +704,15 @@ export default function WorkoutScreen({ navigation }) {
     } finally { setCreatingRoutine(false); setNewRoutineRecurring(false); }
   }
 
+  // T5 — mover ejercicio en modal editar rutina
+  function moveEditExercise(idx, dir) {
+    const arr = [...editExercises];
+    const target = idx + dir;
+    if (target < 0 || target >= arr.length) return;
+    [arr[idx], arr[target]] = [arr[target], arr[idx]];
+    setEditExercises(arr);
+  }
+
   // ─── Editar ejercicios de rutina ──────────────────────────
   function openEditModal(routine) {
     setEditingRoutine(routine);
@@ -685,22 +738,23 @@ export default function WorkoutScreen({ navigation }) {
     } finally { setEditingRoutineSaving(false); }
   }
 
-  // ─── Compartir rutina ─────────────────────────────────────
-  async function openShareRoutine(routine) {
+  // ─── Compartir rutina — T4: código local inmediato, Firestore en background ──
+  function openShareRoutine(routine) {
     setShareRoutineTarget(routine);
     setShareCode('');
+    setShareWarning('');
     setCodeCopied(false);
-    setSharingLoading(true);
+    setSharingLoading(false);
     setShowShareModal(true);
-    try {
-      const code = await shareRoutine(routine);
-      setShareCode(code);
-    } catch(e) {
-      setShowShareModal(false);
-      showInfo('Error', 'No se pudo generar el código. Revisá tu conexión.');
-    } finally {
-      setSharingLoading(false);
-    }
+    // Generar código localmente y mostrar de inmediato (sin spinner)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let localCode = '';
+    for (let i=0; i<6; i++) localCode += chars[Math.floor(Math.random()*chars.length)];
+    setShareCode(localCode);
+    // Guardar en Firestore en segundo plano
+    shareRoutine({ ...routine, _presetCode: localCode }).catch(()=>{
+      setShareWarning('Código generado localmente — puede que otros no puedan importarlo aún. Intentá de nuevo en unos segundos.');
+    });
   }
 
   async function copyShareCode() {
@@ -869,10 +923,15 @@ export default function WorkoutScreen({ navigation }) {
     setCompleted(false); setLastLog(null);
   }
 
-  // T2: "Mis rutinas" siempre muestra rutinas personalizadas del usuario
-  const currentList = useMemo(()=>
-    [...customRoutines].sort((a,b)=>(b.isRecurring?1:0)-(a.isRecurring?1:0))
-  ,[customRoutines]);
+  // Lista ordenada por último uso (más reciente arriba)
+  const currentList = useMemo(()=>{
+    return [...customRoutines].sort((a, b) => {
+      const aLast = lastUsedMap[a.id] || '';
+      const bLast = lastUsedMap[b.id] || '';
+      if (bLast !== aLast) return bLast.localeCompare(aLast);
+      return (b.isRecurring?1:0) - (a.isRecurring?1:0);
+    });
+  },[customRoutines, lastUsedMap]);
 
   // ─── Render ──────────────────────────────────────────────
   return (
@@ -960,6 +1019,15 @@ export default function WorkoutScreen({ navigation }) {
             <ScrollView style={{maxHeight:300}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {editExercises.map((ex,i)=>(
                 <View key={i} style={s.createExRow}>
+                  {/* T5 — flechas para reordenar en edición */}
+                  <View style={{flexDirection:'column',gap:2,marginRight:2}}>
+                    <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,-1)} disabled={i===0}>
+                      <Text style={[s.exOrderTxt,{fontSize:14},i===0&&{opacity:0.22}]}>↑</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,1)} disabled={i===editExercises.length-1}>
+                      <Text style={[s.exOrderTxt,{fontSize:14},i===editExercises.length-1&&{opacity:0.22}]}>↓</Text>
+                    </TouchableOpacity>
+                  </View>
                   <TextInput style={[s.createInput,{flex:1}]} placeholder={`Ejercicio ${i+1}`} placeholderTextColor={colors.gray} value={ex} onChangeText={v=>{ const a=[...editExercises]; a[i]=v; setEditExercises(a); }} returnKeyType="next" />
                   {editExercises.length>1&&(
                     <TouchableOpacity onPress={()=>setEditExercises(prev=>prev.filter((_,j)=>j!==i))} style={s.createRemoveBtn}>
@@ -1015,7 +1083,11 @@ export default function WorkoutScreen({ navigation }) {
                   <Text style={s.shareCodeText}>{shareCode}</Text>
                   <Text style={s.shareCodeHint}>{codeCopied?'✓ Compartido!':'Tap para compartir'}</Text>
                 </TouchableOpacity>
-                <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás. O al menos que tenés una rutina."</Text>
+                {shareWarning?(
+                  <Text style={s.shareWarningText}>{shareWarning}</Text>
+                ):(
+                  <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás. O al menos que tenés una rutina."</Text>
+                )}
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
                 <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
                   <Text style={s.modalBtnText}>{codeCopied?'✓ Compartido!':'📤 Compartir código'}</Text>
@@ -1255,33 +1327,50 @@ export default function WorkoutScreen({ navigation }) {
         {!syncing&&autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:'#ef4444'}]}>⚠ Error</Text>}
       </View>
 
-      {/* Selector de rutinas — T1: ⋯ por chip, T3: tap → modal */}
-      <View style={{flexDirection:'row',alignItems:'center'}}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.dayScroll}>
-          {currentList.map(w=>(
-            <View key={w.id} style={[s.dayChip, s.dayChipRow, selectedWorkout?.id===w.id&&s.dayChipActive]}>
-              <TouchableOpacity style={{flex:1}} onPress={()=>openRoutineModal(w)}>
-                <Text style={[s.dayChipText, selectedWorkout?.id===w.id&&s.dayChipTextActive]} numberOfLines={1}>
-                  {w.isRecurring?'📅 ':''}{w.day||w.name}
-                </Text>
-              </TouchableOpacity>
-              {/* ⋯ 44×44 sin hitSlop — hitSlop no funciona en web */}
-              <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.chipMenuBtn} activeOpacity={0.6}>
-                <Text style={[s.chipMenuTxt, selectedWorkout?.id===w.id&&{color:'rgba(255,255,255,0.85)'}]}>⋯</Text>
-              </TouchableOpacity>
+      {/* T1 — Lista vertical de rutinas */}
+      {initialLoading ? (
+        <View style={s.routineListWrap}>
+          {[0,1,2].map(i=>(
+            <View key={i} style={s.routineRowSkeleton}>
+              <View style={{flex:1,gap:6}}>
+                <SkeletonRect colors={colors} width="58%" height={14}/>
+                <SkeletonRect colors={colors} width="38%" height={11}/>
+              </View>
             </View>
           ))}
-          {currentList.length===0&&!initialLoading&&(
-            <Text style={[s.dayChipText,{paddingVertical:8,color:colors.gray}]}>Sin rutinas aún</Text>
-          )}
-        </ScrollView>
-        {/* Botón importar */}
-        <View style={s.addRoutineBtns}>
-          <TouchableOpacity style={s.addRoutineBtn} onPress={openImportModal} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-            <Text style={s.addRoutineImportTxt}>⬇</Text>
+        </View>
+      ) : (
+        <View style={s.routineListWrap}>
+          <ScrollView style={{maxHeight:200}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            {currentList.map(w=>{
+              const isSelected = selectedWorkout?.id===w.id;
+              const exCount = normalizeExercises(w.exercises).length;
+              const lastUsed = lastUsedMap[w.id];
+              return (
+                <TouchableOpacity key={w.id} style={[s.routineRow, isSelected&&s.routineRowActive]} onPress={()=>openRoutineModal(w)} activeOpacity={0.75}>
+                  <View style={{flex:1,gap:2}}>
+                    <Text style={[s.routineRowName, isSelected&&s.routineRowNameActive]} numberOfLines={1}>
+                      {w.isRecurring?'📅 ':''}{w.name||w.day}
+                    </Text>
+                    <Text style={s.routineRowMeta}>
+                      {exCount} ejercicio{exCount!==1?'s':''}{lastUsed?` · ${formatLogDate(lastUsed)}`:''}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.routineRowMenu} activeOpacity={0.6}>
+                    <Text style={[s.routineRowMenuTxt,isSelected&&{color:'rgba(255,255,255,0.75)'}]}>⋯</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              );
+            })}
+            {currentList.length===0&&(
+              <Text style={{color:colors.gray,padding:16,fontSize:13}}>Sin rutinas aún — tocá "+ Nueva rutina"</Text>
+            )}
+          </ScrollView>
+          <TouchableOpacity style={s.importRowBtn} onPress={openImportModal} activeOpacity={0.7}>
+            <Text style={s.importRowBtnTxt}>⬇ Importar código de rutina</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      )}
 
       {/* Lista de ejercicios */}
       <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={90}>
@@ -1330,7 +1419,7 @@ export default function WorkoutScreen({ navigation }) {
         {/* Tarjetas de ejercicios */}
         {(log?.exercises||[]).map((ex, exIdx)=>(
           <View key={exIdx} style={s.exCard}>
-            {/* Header: nombre + toggle unidad + ✕ (esquina sup. derecha, 44×44 real) */}
+            {/* Header: nombre + toggle unidad + ↑↓ + ✕ */}
             <View style={s.exHeader}>
               <Text style={[s.exName,{flex:1,marginBottom:0}]}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
               <View style={s.exUnitToggle}>
@@ -1344,7 +1433,24 @@ export default function WorkoutScreen({ navigation }) {
                   </TouchableOpacity>
                 ))}
               </View>
-              {/* Botón ✕ — 44×44, usa ConfirmModal (Alert.alert no funciona en web) */}
+              {/* T5 — flechas ↑↓ para reordenar */}
+              <TouchableOpacity
+                style={s.exOrderBtn}
+                onPress={()=>moveExercise(exIdx,-1)}
+                activeOpacity={0.6}
+                disabled={exIdx===0}
+              >
+                <Text style={[s.exOrderTxt,exIdx===0&&{opacity:0.22}]}>↑</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.exOrderBtn}
+                onPress={()=>moveExercise(exIdx,1)}
+                activeOpacity={0.6}
+                disabled={exIdx===(log?.exercises?.length-1)}
+              >
+                <Text style={[s.exOrderTxt,exIdx===(log?.exercises?.length-1)&&{opacity:0.22}]}>↓</Text>
+              </TouchableOpacity>
+              {/* Botón ✕ — 44×44, usa ConfirmModal */}
               <TouchableOpacity
                 style={s.exRemoveBtn}
                 activeOpacity={0.7}
@@ -1400,7 +1506,7 @@ export default function WorkoutScreen({ navigation }) {
                     </TouchableOpacity>
                   </View>
 
-                  {/* ── Inputs: REPS + KG/LB ── */}
+                  {/* ── Inputs: REPS + KG/LB con dato anterior bajo cada uno ── */}
                   <View style={s.setInputRow}>
                     <View style={s.setInputGroup}>
                       <Text style={s.setInputLabel}>REPS</Text>
@@ -1415,6 +1521,7 @@ export default function WorkoutScreen({ navigation }) {
                         selectTextOnFocus
                         returnKeyType="next"
                       />
+                      {!isDone&&<Text style={s.setAntLabel}>ant: {prevReps||'—'}</Text>}
                     </View>
                     <View style={s.setInputGroup}>
                       <Text style={s.setInputLabel}>{(ex.unit||weightUnit).toUpperCase()}</Text>
@@ -1429,15 +1536,9 @@ export default function WorkoutScreen({ navigation }) {
                         selectTextOnFocus
                         returnKeyType="done"
                       />
+                      {!isDone&&<Text style={s.setAntLabel}>ant: {prevWeight?`${prevWeight}${getLastExUnit(ex.name)||ex.unit||weightUnit}`:'—'}</Text>}
                     </View>
                   </View>
-
-                  {/* ── Anterior ── */}
-                  {hasPrev&&!isDone&&(
-                    <Text style={s.setPrevText}>
-                      Ant: {prevReps||'—'} reps × {prevWeight||'—'} {getLastExUnit(ex.name)||ex.unit||weightUnit}
-                    </Text>
-                  )}
                 </View>
               );
             })}
@@ -1745,5 +1846,28 @@ function createStyles(colors) {
     // Agregar ejercicio a sesión
     addExToSessionBtn: { borderWidth:1.5, borderColor:colors.purpleDim, borderRadius:RADIUS.full, paddingVertical:13, alignItems:'center', marginBottom:12, minHeight:48, justifyContent:'center', borderStyle:'dashed' },
     addExToSessionTxt: { color:colors.purpleLight, fontWeight:'700', fontSize:15 },
+
+    // T1 — Lista vertical de rutinas
+    routineListWrap: { borderBottomWidth:1, borderBottomColor:colors.purpleDim, backgroundColor:colors.bgCard },
+    routineRowSkeleton: { flexDirection:'row', alignItems:'center', paddingHorizontal:16, paddingVertical:14, borderBottomWidth:1, borderBottomColor:colors.purpleDim },
+    routineRow: { flexDirection:'row', alignItems:'center', paddingHorizontal:16, paddingVertical:12, borderBottomWidth:1, borderBottomColor:colors.purpleDim },
+    routineRowActive: { backgroundColor:colors.purpleDim },
+    routineRowName: { fontSize:14, fontWeight:'700', color:colors.white },
+    routineRowNameActive: { color:colors.purpleLight },
+    routineRowMeta: { fontSize:11, color:colors.gray, marginTop:2 },
+    routineRowMenu: { width:44, height:44, alignItems:'center', justifyContent:'center' },
+    routineRowMenuTxt: { fontSize:20, color:colors.gray, fontWeight:'900' },
+    importRowBtn: { paddingHorizontal:16, paddingVertical:11, borderTopWidth:0 },
+    importRowBtnTxt: { fontSize:12, color:colors.purple, fontWeight:'600' },
+
+    // T2 — ant: bajo cada input
+    setAntLabel: { fontSize:11, color:'#666', marginTop:4, textAlign:'center' },
+
+    // T4 — aviso compartir
+    shareWarningText: { fontSize:12, color:colors.danger||'#ef4444', textAlign:'center', paddingHorizontal:8, marginBottom:8, lineHeight:17 },
+
+    // T5 — flechas reordenar
+    exOrderBtn: { width:28, height:32, alignItems:'center', justifyContent:'center' },
+    exOrderTxt: { fontSize:18, color:colors.gray, fontWeight:'700', lineHeight:22 },
   });
 }

@@ -1,13 +1,17 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, Alert,
+  TouchableOpacity, Alert, Modal,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getWeightUnit, saveWeightUnit } from '../storage';
+import { getWeightUnit, saveWeightUnit, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+
+// Días de la semana en orden visual L-D
+const WEEK_DAYS = ['L','M','X','J','V','S','D'];
+const WEEK_DAY_NAMES = { L:'Lunes', M:'Martes', X:'Miércoles', J:'Jueves', V:'Viernes', S:'Sábado', D:'Domingo' };
 
 // ─── Meta de paletas (UI preview) ─────────────────────────────
 const PALETTE_OPTIONS = [
@@ -43,9 +47,37 @@ export default function SettingsScreen() {
 
   const [weightUnit, setWeightUnit] = useState('kg');
 
+  // T3 — programación semanal
+  const [weekSchedule, setWeekSchedule] = useState({});
+  const [routines, setRoutines]         = useState([]);
+  const [showDayPicker, setShowDayPicker] = useState(false);
+  const [pickerDay, setPickerDay]         = useState(null);
+
   useEffect(() => {
     getWeightUnit().then(setWeightUnit);
+    loadWeekData();
   }, []);
+
+  async function loadWeekData() {
+    const [schedule, rts] = await Promise.all([
+      getWeekSchedule().catch(()=>({})),
+      getLocalCustomRoutines().catch(()=>[]),
+    ]);
+    setWeekSchedule(schedule);
+    setRoutines(rts);
+  }
+
+  function openDayPicker(day) {
+    setPickerDay(day);
+    setShowDayPicker(true);
+  }
+
+  async function assignDay(day, value) {
+    const updated = { ...weekSchedule, [day]: value };
+    setWeekSchedule(updated);
+    setShowDayPicker(false);
+    await saveWeekSchedule(updated);
+  }
 
   async function handleWeightUnitChange(unit) {
     setWeightUnit(unit);
@@ -144,6 +176,58 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
+        {/* ── MI SEMANA ── */}
+        <Text style={s.sectionTitle}>MI SEMANA</Text>
+        <View style={s.card}>
+          <View style={s.weekRow}>
+            {WEEK_DAYS.map(day=>{
+              const val = weekSchedule[day];
+              const isRest = val==='rest';
+              const hasRoutine = val && val!=='rest';
+              return (
+                <TouchableOpacity key={day} style={s.dayCell} onPress={()=>openDayPicker(day)} activeOpacity={0.7}>
+                  <Text style={[s.dayCellLabel, hasRoutine&&s.dayCellLabelActive, isRest&&s.dayCellLabelRest]}>{day}</Text>
+                  <View style={[s.dayCellDot, hasRoutine&&s.dayCellDotActive, isRest&&s.dayCellDotRest]}>
+                    {isRest&&<Text style={{fontSize:8}}>💤</Text>}
+                    {hasRoutine&&<Text style={{fontSize:8}}>💪</Text>}
+                  </View>
+                  {hasRoutine&&(
+                    <Text style={s.dayCellName} numberOfLines={1}>{val.name?.split(' ')[0]||'?'}</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={s.weekHint}>Tocá un día para asignar una rutina</Text>
+        </View>
+
+        {/* Modal selector de día */}
+        <Modal visible={showDayPicker} transparent animationType="slide" onRequestClose={()=>setShowDayPicker(false)}>
+          <View style={s.bsOverlay}>
+            <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={()=>setShowDayPicker(false)}/>
+            <View style={s.bottomSheet}>
+              <View style={s.bottomSheetHandle}/>
+              <Text style={s.bottomSheetTitle}>{pickerDay?WEEK_DAY_NAMES[pickerDay]:''}</Text>
+              <ScrollView style={{maxHeight:320}} showsVerticalScrollIndicator={false}>
+                <TouchableOpacity style={s.bsOption} onPress={()=>assignDay(pickerDay,'rest')}>
+                  <Text style={s.bsOptionTxt}>💤  Descanso</Text>
+                </TouchableOpacity>
+                {routines.map(r=>(
+                  <TouchableOpacity key={r.id} style={s.bsOption} onPress={()=>assignDay(pickerDay,{id:r.id,name:r.name||r.day})}>
+                    <Text style={s.bsOptionTxt}>💪  {r.name||r.day}</Text>
+                  </TouchableOpacity>
+                ))}
+                {routines.length===0&&(
+                  <Text style={{color:colors.gray,padding:16,fontSize:13}}>Sin rutinas guardadas aún.</Text>
+                )}
+                <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim}]} onPress={()=>assignDay(pickerDay,null)}>
+                  <Text style={[s.bsOptionTxt,{color:colors.gray}]}>✕  Quitar asignación</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
         {/* ── PANCHITA ── */}
         <Text style={s.sectionTitle}>PANCHITA</Text>
@@ -304,5 +388,34 @@ function createStyles(colors) {
     },
     logoutText: { color: colors.danger, fontWeight: '700', fontSize: 16 },
     footer: { textAlign: 'center', color: colors.gray, fontSize: 13, marginTop: 32 },
+
+    // T3 — Mi semana
+    weekRow: { flexDirection:'row', justifyContent:'space-around', paddingVertical:16, paddingHorizontal:8 },
+    weekHint: { fontSize:11, color:colors.gray, textAlign:'center', paddingBottom:12 },
+    dayCell: { alignItems:'center', gap:5, minWidth:38 },
+    dayCellLabel: { fontSize:13, fontWeight:'700', color:colors.gray },
+    dayCellLabelActive: { color:colors.purpleLight },
+    dayCellLabelRest: { color:colors.gray },
+    dayCellDot: {
+      width:32, height:32, borderRadius:16,
+      backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center',
+    },
+    dayCellDotActive: { backgroundColor:colors.purpleDim, borderColor:colors.purple },
+    dayCellDotRest: { backgroundColor:colors.bgInput, borderColor:colors.gray },
+    dayCellName: { fontSize:9, color:colors.purpleLight, fontWeight:'700', maxWidth:38, textAlign:'center' },
+
+    // Bottom sheet para selector de día
+    bsOverlay: { flex:1, justifyContent:'flex-end', backgroundColor:'rgba(0,0,0,0.72)' },
+    bottomSheet: {
+      backgroundColor:colors.bgCard,
+      borderTopLeftRadius:RADIUS.xl, borderTopRightRadius:RADIUS.xl,
+      paddingBottom:36, paddingTop:12,
+      borderTopWidth:1, borderTopColor:colors.purpleDim,
+    },
+    bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
+    bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
+    bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
+    bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
   });
 }

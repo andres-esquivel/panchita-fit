@@ -456,6 +456,44 @@ export async function saveWeightUnit(unit) {
   }
 }
 
+// ─── Programación semanal ──────────────────────────────────
+// Estructura: { L: {id, name} | 'rest' | null, M: ..., X: ..., J: ..., V: ..., S: ..., D: ... }
+const WEEK_SCHEDULE_KEY = 'panchita_weekSchedule';
+
+export async function getWeekSchedule() {
+  // Local primero
+  try {
+    const raw = await AsyncStorage.getItem(WEEK_SCHEDULE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  // Firestore con timeout
+  try {
+    const snap = await withTimeout(
+      getDoc(userDoc('config/weekSchedule')),
+      5000, 'getWeekSchedule'
+    );
+    if (snap.exists()) {
+      const data = snap.data();
+      await AsyncStorage.setItem(WEEK_SCHEDULE_KEY, JSON.stringify(data));
+      return data;
+    }
+  } catch {}
+  return {};
+}
+
+export async function saveWeekSchedule(schedule) {
+  try {
+    await AsyncStorage.setItem(WEEK_SCHEDULE_KEY, JSON.stringify(schedule));
+  } catch (e) {
+    console.warn('saveWeekSchedule local failed:', e);
+  }
+  try {
+    await setDoc(userDoc('config/weekSchedule'), schedule);
+  } catch (e) {
+    console.warn('saveWeekSchedule Firestore failed:', e);
+  }
+}
+
 // ─── Compartir rutinas con código ─────────────────────────
 // Genera código de 6 chars alfanumérico sin ambiguos (0/O, 1/I/l)
 function generateShareCode() {
@@ -477,13 +515,18 @@ function toStringArray(exercises) {
 }
 
 export async function shareRoutine(routine) {
-  // Buscar código único (máx 5 intentos para evitar colisiones)
-  let code;
-  for (let i = 0; i < 5; i++) {
-    code = generateShareCode();
-    const ref = doc(db, 'sharedRoutines', code);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) break;
+  // Si viene con código preestablecido (generado localmente), usarlo directamente
+  let code = routine._presetCode;
+
+  if (!code) {
+    // Buscar código único (máx 5 intentos para evitar colisiones)
+    for (let i = 0; i < 5; i++) {
+      const tryCode = generateShareCode();
+      const ref = doc(db, 'sharedRoutines', tryCode);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) { code = tryCode; break; }
+    }
+    if (!code) code = generateShareCode();
   }
 
   const now = new Date();
@@ -506,7 +549,7 @@ export async function importSharedRoutine(code) {
   const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
 
-  const snap = await withTimeout(getDoc(doc(db, 'sharedRoutines', clean)), 8000, 'importRoutine');
+  const snap = await withTimeout(getDoc(doc(db, 'sharedRoutines', clean)), 5000, 'importRoutine');
   if (!snap.exists()) throw new Error('Código no encontrado. Verificá que esté bien escrito.');
 
   const data = snap.data();
