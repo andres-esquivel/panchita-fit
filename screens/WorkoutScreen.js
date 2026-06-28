@@ -38,6 +38,13 @@ const COMPLETION_PHRASES = [
   'Completado. Ya podés presumirle a tu yo de ayer.',
 ];
 
+// ─── Frases de autosave ────────────────────────────────────
+const AUTOSAVE_PHRASES = [
+  'Guardado. No confío en el WiFi pero bueno.',
+  'Datos a salvo. Por ahora.',
+  'Guardé todo. Seguí levantando.',
+];
+
 // ─── Lógica de recomendación ───────────────────────────────
 const MUSCLE_LABELS = {
   chest:     'pecho',
@@ -108,7 +115,6 @@ function logSignature(log) {
 }
 
 function buildRecommendation(muscleActivity) {
-  // Elegir el grupo que más tiempo lleva sin entrenarse
   let worstGroup = 'legs';
   let worstDays = -1;
 
@@ -120,7 +126,7 @@ function buildRecommendation(muscleActivity) {
     }
   }
 
-  const realDays = muscleActivity[worstGroup]; // null o número
+  const realDays = muscleActivity[worstGroup];
   const phrase = PANCHITA_RECOMMEND_PHRASES[worstGroup]?.(realDays)
     || `Ya es hora de entrenar ${MUSCLE_LABELS[worstGroup]}.`;
 
@@ -131,6 +137,17 @@ function buildRecommendation(muscleActivity) {
     daysSince: realDays,
     phrase,
   };
+}
+
+// ─── Normalizar array de ejercicios ───────────────────────
+function normalizeExercises(rawExercises) {
+  if (!rawExercises) return [];
+  const arr = Array.isArray(rawExercises) ? rawExercises : Object.values(rawExercises);
+  return arr.map((ex, idx) => {
+    if (typeof ex === 'string' && ex.trim()) return ex.trim();
+    if (ex && typeof ex === 'object' && ex.name) return String(ex.name);
+    return `Ejercicio ${idx + 1}`;
+  });
 }
 
 // ─── Componente principal ──────────────────────────────────
@@ -145,26 +162,32 @@ export default function WorkoutScreen({ navigation }) {
   const [log, setLog]                         = useState(null);
   const [lastLog, setLastLog]                 = useState(null);
   const [saving, setSaving]                   = useState(false);
-  const [autoSaveState, setAutoSaveState]     = useState('idle'); // idle | saving | saved | error
+  const [autoSaveState, setAutoSaveState]     = useState('idle');
   const [completed, setCompleted]             = useState(false);
 
   // Modo A / B
-  const [mode, setMode] = useState('base'); // 'base' | 'custom'
+  const [mode, setMode] = useState('base');
 
-  // Reacción Panchita flotante
+  // Reacción Panchita flotante (set completado)
   const [panchitaReaction, setPanchitaReaction] = useState(false);
   const [reactionPhrase, setReactionPhrase]     = useState('');
+
+  // Popup autosave
+  const [showSavePop, setShowSavePop]     = useState(false);
+  const [savePopPhrase, setSavePopPhrase] = useState('');
+  const saveFadeAnim                       = useRef(new Animated.Value(0)).current;
 
   // Modal completado
   const [showCompletion, setShowCompletion]     = useState(false);
   const [completionPhrase, setCompletionPhrase] = useState('');
 
   // Modal crear rutina
-  const [showCreateModal, setShowCreateModal]   = useState(false);
-  const [newRoutineName, setNewRoutineName]     = useState('');
-  const [newExercises, setNewExercises]         = useState(['', '', '']);
-  const [createError, setCreateError]           = useState('');
-  const [creatingRoutine, setCreatingRoutine]   = useState(false);
+  const [showCreateModal, setShowCreateModal]     = useState(false);
+  const [newRoutineName, setNewRoutineName]       = useState('');
+  const [newExercises, setNewExercises]           = useState(['', '', '']);
+  const [newRoutineRecurring, setNewRoutineRecurring] = useState(false);
+  const [createError, setCreateError]             = useState('');
+  const [creatingRoutine, setCreatingRoutine]     = useState(false);
 
   // Modal recomendación Panchita
   const [showRecommend, setShowRecommend]       = useState(false);
@@ -203,6 +226,16 @@ export default function WorkoutScreen({ navigation }) {
         await saveLog(log);
         lastSavedLogRef.current = signature;
         setAutoSaveState('saved');
+        // Mostrar popup de Panchita
+        const phrase = AUTOSAVE_PHRASES[Math.floor(Math.random() * AUTOSAVE_PHRASES.length)];
+        setSavePopPhrase(phrase);
+        setShowSavePop(true);
+        saveFadeAnim.setValue(0);
+        Animated.sequence([
+          Animated.timing(saveFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.delay(1800),
+          Animated.timing(saveFadeAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+        ]).start(() => setShowSavePop(false));
       } catch (error) {
         console.warn('autosave workout failed:', error);
         setAutoSaveState('error');
@@ -222,11 +255,15 @@ export default function WorkoutScreen({ navigation }) {
 
   async function selectWorkout(workout) {
     setSelectedWorkout(workout);
+
+    // Normalizar ejercicios — maneja arrays, objetos y valores mixtos de Firestore
+    const exerciseNames = normalizeExercises(workout.exercises);
+
     const blankLog = {
       date: TODAY,
       workoutId: workout.id,
       completed: false,
-      exercises: workout.exercises.map(name => ({
+      exercises: exerciseNames.map(name => ({
         name,
         sets: [{ reps: '', weight: '' }],
       })),
@@ -241,12 +278,31 @@ export default function WorkoutScreen({ navigation }) {
       const last = logs.filter(l => l.workoutId === workout.id && l.completed)
         .sort((a, b) => b.date.localeCompare(a.date))[0] || null;
       setLastLog(last);
+
       const todayLog = logs.find(l => l.date === TODAY && l.workoutId === workout.id);
       if (todayLog) {
         setLog(todayLog);
         setCompleted(todayLog.completed);
         lastSavedLogRef.current = logSignature(todayLog);
         setAutoSaveState('saved');
+      } else if (workout.isRecurring && last) {
+        // Rutina recurrente: pre-cargar pesos y reps de la última sesión
+        const preFilledLog = {
+          ...blankLog,
+          exercises: blankLog.exercises.map(ex => {
+            const lastEx = last.exercises?.find(e => e.name === ex.name);
+            if (!lastEx) return ex;
+            return {
+              ...ex,
+              sets: (lastEx.sets || []).map(st => ({
+                reps: st.reps || '',
+                weight: st.weight || '',
+                done: false,
+              })),
+            };
+          }),
+        };
+        setLog(preFilledLog);
       }
     } catch (error) {
       console.warn('selectWorkout logs load failed:', error);
@@ -254,7 +310,6 @@ export default function WorkoutScreen({ navigation }) {
     }
   }
 
-  // Cambiar entre modo base / custom
   async function switchMode(newMode) {
     setMode(newMode);
     setSelectedWorkout(null);
@@ -271,7 +326,7 @@ export default function WorkoutScreen({ navigation }) {
     return parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : clean;
   }
 
-  function updateSet(exIdx, setIdx, field, value) {
+  const updateSet = useCallback((exIdx, setIdx, field, value) => {
     const nextValue = normalizeSetValue(field, value);
     setLog(prev => ({
       ...prev,
@@ -284,9 +339,9 @@ export default function WorkoutScreen({ navigation }) {
         }
       ),
     }));
-  }
+  }, []);
 
-  function addSet(exIdx) {
+  const addSet = useCallback((exIdx) => {
     setLog(prev => ({
       ...prev,
       exercises: prev.exercises.map((ex, ei) => {
@@ -295,10 +350,9 @@ export default function WorkoutScreen({ navigation }) {
         return { ...ex, sets: [...ex.sets, { reps: last?.reps || '', weight: last?.weight || '', done: false }] };
       }),
     }));
-  }
+  }, []);
 
-  // ─── Completar set ────────────────────────────────────────
-  function toggleSetDone(exIdx, setIdx) {
+  const toggleSetDone = useCallback((exIdx, setIdx) => {
     setLog(prev => {
       const set = prev.exercises[exIdx]?.sets[setIdx];
       if (!set) return prev;
@@ -315,7 +369,6 @@ export default function WorkoutScreen({ navigation }) {
         ),
       };
       if (!wasDone) {
-        // Reacción Panchita al completar
         const phrase = SET_PHRASES[Math.floor(Math.random() * SET_PHRASES.length)];
         setReactionPhrase(phrase);
         setPanchitaReaction(true);
@@ -323,9 +376,9 @@ export default function WorkoutScreen({ navigation }) {
       }
       return updated;
     });
-  }
+  }, []);
 
-  function removeSet(exIdx, setIdx) {
+  const removeSet = useCallback((exIdx, setIdx) => {
     setLog(prev => ({
       ...prev,
       exercises: prev.exercises.map((ex, ei) => {
@@ -336,9 +389,9 @@ export default function WorkoutScreen({ navigation }) {
         return { ...ex, sets: ex.sets.filter((_, si) => si !== setIdx) };
       }),
     }));
-  }
+  }, []);
 
-  function clearSet(exIdx, setIdx) {
+  const clearSet = useCallback((exIdx, setIdx) => {
     setLog(prev => ({
       ...prev,
       exercises: prev.exercises.map((ex, ei) =>
@@ -350,7 +403,7 @@ export default function WorkoutScreen({ navigation }) {
         }
       ),
     }));
-  }
+  }, []);
 
   // ─── Guardar / terminar ───────────────────────────────────
   async function saveProgress() {
@@ -405,6 +458,7 @@ export default function WorkoutScreen({ navigation }) {
   function openCreateModal() {
     setNewRoutineName('');
     setNewExercises(['', '', '']);
+    setNewRoutineRecurring(false);
     setCreateError('');
     setCreatingRoutine(false);
     setShowCreateModal(true);
@@ -415,6 +469,7 @@ export default function WorkoutScreen({ navigation }) {
     setShowCreateModal(false);
     setCreateError('');
     setCreatingRoutine(false);
+    setNewRoutineRecurring(false);
   }
 
   async function saveNewRoutine() {
@@ -442,6 +497,7 @@ export default function WorkoutScreen({ navigation }) {
         day: trimmedName,
         exercises,
         isCustom: true,
+        isRecurring: newRoutineRecurring,
         createdAt: new Date().toISOString(),
       };
       await saveCustomRoutine(routine);
@@ -453,6 +509,7 @@ export default function WorkoutScreen({ navigation }) {
       setShowCreateModal(false);
       setCreateError('');
       setCreatingRoutine(false);
+      setNewRoutineRecurring(false);
       selectWorkout(routine).catch(error => console.warn('select custom routine failed:', error));
     } catch (error) {
       console.error('saveNewRoutine error:', error);
@@ -474,13 +531,17 @@ export default function WorkoutScreen({ navigation }) {
     setNewExercises(prev => prev.map((e, i) => i === idx ? value : e));
   }
 
-  // ─── Eliminar rutina custom ───────────────────────────────
+  // ─── Eliminar / duplicar rutina custom ───────────────────
   function confirmDelete(routine) {
     Alert.alert(
-      'Eliminar rutina',
-      `¿Eliminar "${routine.name}"? Esta acción no se puede deshacer.`,
+      routine.name || routine.day,
+      '¿Qué querés hacer con esta rutina?',
       [
         { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Duplicar',
+          onPress: () => duplicateRoutine(routine),
+        },
         {
           text: 'Eliminar', style: 'destructive',
           onPress: async () => {
@@ -496,6 +557,23 @@ export default function WorkoutScreen({ navigation }) {
         },
       ]
     );
+  }
+
+  async function duplicateRoutine(routine) {
+    try {
+      const newRoutine = {
+        ...routine,
+        id: `custom_${Date.now()}`,
+        name: `${routine.name || routine.day} (copia)`,
+        day: `${routine.name || routine.day} (copia)`,
+        createdAt: new Date().toISOString(),
+      };
+      await saveCustomRoutine(newRoutine);
+      const updated = await getCustomRoutines();
+      setCustomRoutines(updated);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo duplicar la rutina.');
+    }
   }
 
   // ─── Recomendación Panchita ───────────────────────────────
@@ -527,7 +605,6 @@ export default function WorkoutScreen({ navigation }) {
       exercises: recommendation.exercises,
     };
     setShowRecommend(false);
-    // Cargar la rutina recomendada directamente como log temporal
     setSelectedWorkout(routine);
     setLog({
       date: TODAY,
@@ -542,12 +619,27 @@ export default function WorkoutScreen({ navigation }) {
     setLastLog(null);
   }
 
-  // ─── Renderizado ──────────────────────────────────────────
-  const currentList = mode === 'base' ? baseWorkouts : customRoutines;
+  // ─── Lista actual (recurrentes primero) ───────────────────
+  const currentList = useMemo(() => {
+    const list = mode === 'base' ? baseWorkouts : customRoutines;
+    if (mode !== 'custom') return list;
+    return [...list].sort((a, b) => (b.isRecurring ? 1 : 0) - (a.isRecurring ? 1 : 0));
+  }, [mode, baseWorkouts, customRoutines]);
 
+  // ─── Renderizado ──────────────────────────────────────────
   return (
     <SafeAreaView style={s.safe}>
-      {/* Reacción Panchita flotante */}
+      {/* Popup autosave Panchita — esquina inferior izquierda */}
+      {showSavePop && (
+        <Animated.View style={[s.autosavePop, { opacity: saveFadeAnim }]} pointerEvents="none">
+          <Panchita state="happy" size={60} autoWave={false} />
+          <View style={s.autosavePopBubble}>
+            <Text style={s.autosavePopText}>{savePopPhrase}</Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* Reacción Panchita flotante (set completado) */}
       {panchitaReaction && (
         <View style={s.reaction}>
           <Panchita state="happy" size={48} />
@@ -574,7 +666,7 @@ export default function WorkoutScreen({ navigation }) {
       {/* ── Modal: crear rutina ── */}
       <Modal visible={showCreateModal} transparent animationType="slide" onRequestClose={closeCreateModal}>
         <View style={s.modalOverlay}>
-          <View style={[s.modalCard, { padding: 20, width: '92%', maxHeight: '85%' }]}>
+          <View style={[s.modalCard, { padding: 20, width: '92%', maxHeight: '88%' }]}>
             <Text style={s.modalTitle}>Nueva rutina</Text>
             <TextInput
               style={[s.createInput, { marginBottom: 16 }]}
@@ -584,8 +676,24 @@ export default function WorkoutScreen({ navigation }) {
               onChangeText={v => { setNewRoutineName(v); if (createError) setCreateError(''); }}
               returnKeyType="next"
             />
-            <Text style={[s.createLabel, { marginBottom: 8 }]}>Ejercicios</Text>
-            <ScrollView style={{ maxHeight: 300, alignSelf: 'stretch' }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {/* Toggle rutina recurrente */}
+            <TouchableOpacity
+              style={[s.recurringRow, newRoutineRecurring && s.recurringRowOn]}
+              onPress={() => setNewRoutineRecurring(v => !v)}
+              activeOpacity={0.8}
+            >
+              <Text style={s.recurringLabel}>
+                {newRoutineRecurring ? '📅' : '🔁'} Repetir cada semana
+              </Text>
+              <View style={[s.recurringToggle, newRoutineRecurring && s.recurringToggleOn]}>
+                <Text style={[s.recurringToggleTxt, newRoutineRecurring && s.recurringToggleTxtOn]}>
+                  {newRoutineRecurring ? 'Sí' : 'No'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <Text style={[s.createLabel, { marginBottom: 8, marginTop: 12 }]}>Ejercicios</Text>
+            <ScrollView style={{ maxHeight: 260, alignSelf: 'stretch' }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {newExercises.map((ex, i) => (
                 <View key={i} style={s.createExRow}>
                   <TextInput
@@ -634,9 +742,7 @@ export default function WorkoutScreen({ navigation }) {
             ) : recommendation ? (
               <>
                 <View style={s.recBadge}>
-                  <Text style={s.recBadgeText}>
-                    {recommendation.label.toUpperCase()} HOY
-                  </Text>
+                  <Text style={s.recBadgeText}>{recommendation.label.toUpperCase()} HOY</Text>
                 </View>
                 <Text style={[s.modalPhrase, { fontStyle: 'italic', marginBottom: 4 }]}>
                   "{recommendation.phrase}"
@@ -650,9 +756,7 @@ export default function WorkoutScreen({ navigation }) {
                   <Text style={s.modalBtnText}>Usar esta rutina →</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setShowRecommend(false)} style={{ marginTop: 8 }}>
-                  <Text style={{ color: colors.gray, fontSize: 13, textAlign: 'center' }}>
-                    No gracias, elijo yo
-                  </Text>
+                  <Text style={{ color: colors.gray, fontSize: 13, textAlign: 'center' }}>No gracias, elijo yo</Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -663,27 +767,26 @@ export default function WorkoutScreen({ navigation }) {
       {/* ── Header: modo A / B ── */}
       <View style={s.modeHeader}>
         <View style={s.modeTabs}>
-          <TouchableOpacity
-            style={[s.modeTab, mode === 'base' && s.modeTabActive]}
-            onPress={() => switchMode('base')}
-          >
-            <Text style={[s.modeTabText, mode === 'base' && s.modeTabTextActive]}>
-              Mis rutinas
-            </Text>
+          <TouchableOpacity style={[s.modeTab, mode === 'base' && s.modeTabActive]} onPress={() => switchMode('base')}>
+            <Text style={[s.modeTabText, mode === 'base' && s.modeTabTextActive]}>Mis rutinas</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.modeTab, mode === 'custom' && s.modeTabActive]}
-            onPress={() => switchMode('custom')}
-          >
-            <Text style={[s.modeTabText, mode === 'custom' && s.modeTabTextActive]}>
-              Personalizadas
-            </Text>
+          <TouchableOpacity style={[s.modeTab, mode === 'custom' && s.modeTabActive]} onPress={() => switchMode('custom')}>
+            <Text style={[s.modeTabText, mode === 'custom' && s.modeTabTextActive]}>Personalizadas</Text>
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation}>
           <Text style={s.recommendBtnText}>¿Qué entreno hoy?</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Nombre de rutina activa ── */}
+      {selectedWorkout && log && (
+        <View style={s.activeRoutineBar}>
+          <Text style={s.activeRoutineName} numberOfLines={1}>
+            {selectedWorkout.isRecurring ? '📅 ' : ''}{selectedWorkout.name || selectedWorkout.day}
+          </Text>
+        </View>
+      )}
 
       {/* ── Selector de día / rutina ── */}
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -696,7 +799,7 @@ export default function WorkoutScreen({ navigation }) {
               onLongPress={() => w.isCustom && confirmDelete(w)}
             >
               <Text style={[s.dayChipText, selectedWorkout?.id === w.id && s.dayChipTextActive]}>
-                {w.day || w.name}
+                {w.isRecurring ? '📅 ' : ''}{w.day || w.name}
               </Text>
             </TouchableOpacity>
           ))}
@@ -713,11 +816,11 @@ export default function WorkoutScreen({ navigation }) {
         )}
       </View>
       {mode === 'custom' && currentList.length > 0 && (
-        <Text style={s.longPressHint}>Mantené presionado para eliminar una rutina</Text>
+        <Text style={s.longPressHint}>Mantené presionado para duplicar o eliminar</Text>
       )}
 
       {/* ── Log de ejercicios ── */}
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {!log && (
           <View style={s.emptyState}>
             {mode === 'custom' ? (
@@ -744,39 +847,36 @@ export default function WorkoutScreen({ navigation }) {
           </View>
         )}
 
-        {log && autoSaveState !== 'idle' && !completed && (
-          <View style={[s.autoSavePill, autoSaveState === 'error' && s.autoSavePillError]}>
-            <Text style={[s.autoSaveText, autoSaveState === 'error' && s.autoSaveTextError]}>
-              {autoSaveState === 'saving'
-                ? 'Guardando automático...'
-                : autoSaveState === 'saved'
-                  ? 'Guardado automático ✓'
-                  : 'Autosave falló. Tocá Guardar progreso.'}
-            </Text>
+        {log && autoSaveState === 'error' && !completed && (
+          <View style={s.autoSavePillError}>
+            <Text style={s.autoSaveTextError}>Autosave falló. Tocá Guardar progreso.</Text>
           </View>
         )}
 
         {log?.exercises.map((ex, exIdx) => (
           <View key={exIdx} style={s.exCard}>
             <Text style={s.exName}>{ex.name}</Text>
+
+            {/* Header de columnas */}
             <View style={s.setHeader}>
-              <Text style={[s.setCol, s.setLabel]}>Set</Text>
-              <Text style={[s.setCol, s.setLabel]}>Ant.</Text>
-              <Text style={[s.setCol, s.setLabel]}>Reps</Text>
-              <Text style={[s.setCol, s.setLabel]}>Kg</Text>
-              <View style={{ width: 76 }} />
+              <Text style={[s.setColNum, s.setLabel]}>Set</Text>
+              <Text style={[s.setColAnt, s.setLabel]}>Ant.</Text>
+              <Text style={[s.setColFlex, s.setLabel]}>Reps</Text>
+              <Text style={[s.setColFlex, s.setLabel]}>Kg</Text>
+              <View style={{ width: 68 }} />
             </View>
+
             {ex.sets.map((st, setIdx) => {
               const prevReps   = getLastValue(ex.name, setIdx, 'reps');
               const prevWeight = getLastValue(ex.name, setIdx, 'weight');
-              const prevLabel  = prevReps && prevWeight ? `${prevWeight}x${prevReps}` : '-';
+              const prevLabel  = prevReps && prevWeight ? `${prevWeight}×${prevReps}` : '-';
               const isDone     = !!st.done;
               return (
                 <View key={setIdx} style={[s.setRow, isDone && s.setRowDone]}>
-                  <Text style={[s.setCol, s.setNum, isDone && s.setNumDone]}>{setIdx + 1}</Text>
-                  <Text style={[s.setCol, s.setPrev]}>{prevLabel}</Text>
+                  <Text style={[s.setColNum, s.setNum, isDone && s.setNumDone]}>{setIdx + 1}</Text>
+                  <Text style={[s.setColAnt, s.setPrev]}>{prevLabel}</Text>
                   <TextInput
-                    style={[s.setCol, s.setInput, isDone && s.setInputDone]}
+                    style={[s.setColFlex, s.setInput, isDone && s.setInputDone]}
                     value={st.reps}
                     onChangeText={v => updateSet(exIdx, setIdx, 'reps', v)}
                     keyboardType="numeric"
@@ -785,7 +885,7 @@ export default function WorkoutScreen({ navigation }) {
                     editable={!isDone}
                   />
                   <TextInput
-                    style={[s.setCol, s.setInput, isDone && s.setInputDone]}
+                    style={[s.setColFlex, s.setInput, isDone && s.setInputDone]}
                     value={st.weight}
                     onChangeText={v => updateSet(exIdx, setIdx, 'weight', v)}
                     keyboardType="numeric"
@@ -808,7 +908,7 @@ export default function WorkoutScreen({ navigation }) {
                       ]}
                       disabled={ex.sets.length <= 1 && !st.reps && !st.weight && !isDone}
                     >
-                      <Text style={s.removeTxt}>{ex.sets.length > 1 ? '−' : 'limpiar'}</Text>
+                      <Text style={s.removeTxt}>{ex.sets.length > 1 ? '−' : '✕'}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -823,10 +923,14 @@ export default function WorkoutScreen({ navigation }) {
         {log && (
           <View style={s.actions}>
             <TouchableOpacity style={s.saveBtn} onPress={saveProgress} disabled={saving}>
-              <Text style={s.saveBtnText}>{saving ? 'Guardando...' : 'Guardar progreso'}</Text>
+              {saving ? (
+                <ActivityIndicator size="small" color={colors.purpleLight} />
+              ) : (
+                <Text style={s.saveBtnText}>Guardar progreso</Text>
+              )}
             </TouchableOpacity>
             {!completed && (
-              <TouchableOpacity style={s.finishBtn} onPress={finishWorkout}>
+              <TouchableOpacity style={s.finishBtn} onPress={finishWorkout} disabled={saving}>
                 <Text style={s.finishBtnText}>Terminar entrenamiento</Text>
               </TouchableOpacity>
             )}
@@ -840,7 +944,19 @@ export default function WorkoutScreen({ navigation }) {
 // ─── Estilos ───────────────────────────────────────────────
 function createStyles(colors) {
   return StyleSheet.create({
-    safe:              { flex: 1, backgroundColor: colors.bg },
+    safe: { flex: 1, backgroundColor: colors.bg },
+
+    // Autosave popup (esquina inferior izquierda)
+    autosavePop: {
+      position: 'absolute', bottom: 90, left: 12,
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      backgroundColor: colors.bgCard, borderRadius: RADIUS.lg,
+      padding: 10, borderWidth: 1, borderColor: colors.purpleDim,
+      zIndex: 999, maxWidth: '72%',
+      shadowColor: '#7c3aed', shadowOpacity: 0.3, shadowRadius: 6, elevation: 8,
+    },
+    autosavePopBubble: { flex: 1 },
+    autosavePopText:   { color: colors.white, fontSize: 12, lineHeight: 17, fontStyle: 'italic' },
 
     // Modo header
     modeHeader:        { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, gap: 10 },
@@ -851,6 +967,10 @@ function createStyles(colors) {
     modeTabTextActive: { color: '#fff' },
     recommendBtn:      { backgroundColor: colors.purpleDim, borderRadius: RADIUS.full, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.purple },
     recommendBtnText:  { color: colors.purpleLight, fontWeight: '700', fontSize: 13 },
+
+    // Barra nombre rutina activa
+    activeRoutineBar:  { paddingHorizontal: 16, paddingVertical: 6, backgroundColor: colors.bgCard, borderBottomWidth: 1, borderBottomColor: colors.purpleDim },
+    activeRoutineName: { fontSize: 14, fontWeight: '700', color: colors.purpleLight },
 
     // Selector día
     dayScroll:         { paddingHorizontal: 14, paddingVertical: 10, maxHeight: 56 },
@@ -863,84 +983,110 @@ function createStyles(colors) {
     longPressHint:     { fontSize: 10, color: colors.gray, textAlign: 'center', marginBottom: 4 },
 
     // Scroll workout
-    scroll:            { padding: 14, paddingBottom: 60 },
+    scroll: { padding: 14, paddingBottom: 80 },
 
     // Empty state
-    emptyState:        { alignItems: 'center', paddingTop: 60, paddingHorizontal: 24 },
-    emptyEmoji:        { fontSize: 48, marginBottom: 12 },
-    emptyTitle:        { fontSize: 18, fontWeight: '700', color: colors.white, marginBottom: 8, textAlign: 'center' },
-    emptyText:         { fontSize: 14, color: colors.gray, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
-    emptyBtn:          { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 14, paddingHorizontal: 32 },
-    emptyBtnText:      { color: '#fff', fontWeight: '700', fontSize: 15 },
+    emptyState: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 24 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.white, marginBottom: 8, textAlign: 'center' },
+    emptyText:  { fontSize: 14, color: colors.gray, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+    emptyBtn:   { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 14, paddingHorizontal: 32 },
+    emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
-    // Completado
-    completedBanner:   { backgroundColor: colors.limeDark + '33', borderRadius: RADIUS.md, padding: 12, marginBottom: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.lime },
-    completedText:     { color: colors.lime, fontWeight: '600' },
-    autoSavePill:      { alignSelf: 'flex-end', backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10, borderWidth: 1, borderColor: colors.purpleDim },
-    autoSavePillError: { borderColor: colors.danger || '#ef4444' },
-    autoSaveText:      { color: colors.grayLight, fontSize: 11, fontWeight: '600' },
-    autoSaveTextError: { color: colors.danger || '#ef4444' },
+    // Completado / autosave
+    completedBanner:   { backgroundColor: colors.purpleDim, borderRadius: RADIUS.md, padding: 12, marginBottom: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.purple },
+    completedText:     { color: colors.purpleLight, fontWeight: '600' },
+    autoSavePillError: { alignSelf: 'flex-end', backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10, borderWidth: 1, borderColor: colors.danger || '#ef4444' },
+    autoSaveTextError: { color: colors.danger || '#ef4444', fontSize: 11, fontWeight: '600' },
 
     // Ejercicios
-    exCard:            { backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 16, marginBottom: 14 },
-    exName:            { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 12 },
-    setHeader:         { flexDirection: 'row', marginBottom: 6, alignItems: 'center' },
-    setRow:            { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-    setCol:            { flex: 1, textAlign: 'center' },
-    setLabel:          { fontSize: 11, color: colors.gray, fontWeight: '600', textTransform: 'uppercase' },
-    setNum:            { fontSize: 14, color: colors.gray },
-    setPrev:           { fontSize: 13, color: colors.purpleLight },
-    setInput:          { backgroundColor: colors.bgInput, borderRadius: RADIUS.sm, paddingVertical: 8, fontSize: 14, color: colors.white, textAlign: 'center', marginHorizontal: 3 },
-    setInputDone:      { opacity: 0.45 },
-    setRowDone:        { opacity: 0.85 },
-    setNumDone:        { color: colors.lime },
-    setActions:        { width: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 },
-    doneBtn:           { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
-    doneBtnActive:     { backgroundColor: colors.lime, borderColor: colors.lime },
-    doneBtnTxt:        { fontSize: 14, color: colors.gray, fontWeight: '700', lineHeight: 16 },
-    doneBtnTxtActive:  { color: '#0f0a1e' },
-    removeBtn:         { minWidth: 34, height: 30, borderRadius: 15, paddingHorizontal: 6, backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
-    removeBtnDisabled: { opacity: 0.25 },
-    removeTxt:         { color: colors.grayLight, fontSize: 10, fontWeight: '700' },
-    addSetBtn:         { alignSelf: 'flex-start', marginTop: 4 },
-    addSetTxt:         { color: colors.purpleLight, fontSize: 13, fontWeight: '600' },
+    exCard:    { backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 14, marginBottom: 14 },
+    exName:    { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 10 },
 
-    // Acciones
-    actions:           { gap: 12, marginTop: 8 },
-    saveBtn:           { borderWidth: 1, borderColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 14, alignItems: 'center' },
-    saveBtnText:       { color: colors.purpleLight, fontWeight: '600' },
-    finishBtn:         { backgroundColor: colors.lime, borderRadius: RADIUS.full, paddingVertical: 16, alignItems: 'center' },
-    finishBtnText:     { color: '#0f0a1e', fontWeight: '700', fontSize: 16 },
+    // Set layout — columnas fijas para mantener alineación
+    setHeader: { flexDirection: 'row', marginBottom: 6, alignItems: 'center' },
+    setRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 4 },
+    setLabel:  { fontSize: 11, color: colors.gray, fontWeight: '600', textTransform: 'uppercase', textAlign: 'center' },
 
-    // Reacción flotante
-    reaction:          { position: 'absolute', top: 130, left: 14, right: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 12, borderWidth: 1, borderColor: colors.purple, zIndex: 99, shadowColor: '#7c3aed', shadowOpacity: 0.4, shadowRadius: 8, elevation: 8 },
-    reactionBubble:    { flex: 1 },
-    reactionText:      { color: colors.white, fontSize: 13, fontStyle: 'italic', lineHeight: 18 },
+    setColNum: { width: 28, textAlign: 'center' },
+    setColAnt: { width: 58, textAlign: 'center' },
+    setColFlex:{ flex: 1, textAlign: 'center' },
+
+    setNum:      { fontSize: 14, color: colors.gray, textAlign: 'center' },
+    setNumDone:  { color: colors.purpleLight },
+    setPrev:     { fontSize: 12, color: colors.purpleLight, textAlign: 'center' },
+
+    // Inputs grandes — fáciles de tocar en móvil
+    setInput: {
+      backgroundColor: colors.bgInput,
+      borderRadius: RADIUS.sm,
+      paddingVertical: 10,
+      minHeight: 44,
+      fontSize: 16,
+      color: colors.white,
+      textAlign: 'center',
+      fontWeight: '600',
+    },
+    setInputDone: { opacity: 0.4 },
+    setRowDone:   { opacity: 0.85 },
+
+    // Acciones de set
+    setActions:      { width: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 },
+    doneBtn:         { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
+    doneBtnActive:   { backgroundColor: colors.purpleLight, borderColor: colors.purpleLight },
+    doneBtnTxt:      { fontSize: 14, color: colors.gray, fontWeight: '700', lineHeight: 16 },
+    doneBtnTxtActive:{ color: '#fff' },
+    removeBtn:       { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.bgInput, borderWidth: 1, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
+    removeBtnDisabled:{ opacity: 0.25 },
+    removeTxt:       { color: colors.grayLight, fontSize: 14, fontWeight: '700', lineHeight: 16 },
+
+    addSetBtn: { alignSelf: 'flex-start', marginTop: 4 },
+    addSetTxt: { color: colors.purpleLight, fontSize: 13, fontWeight: '600' },
+
+    // Acciones principales — colores coherentes con el tema
+    actions:      { gap: 12, marginTop: 8 },
+    saveBtn:      { borderWidth: 1.5, borderColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 15, alignItems: 'center', minHeight: 50, justifyContent: 'center' },
+    saveBtnText:  { color: colors.purpleLight, fontWeight: '700', fontSize: 15 },
+    finishBtn:    { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 16, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
+    finishBtnText:{ color: '#fff', fontWeight: '700', fontSize: 16 },
+
+    // Reacción flotante (set completado)
+    reaction:      { position: 'absolute', top: 130, left: 14, right: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 12, borderWidth: 1, borderColor: colors.purple, zIndex: 99, shadowColor: '#7c3aed', shadowOpacity: 0.4, shadowRadius: 8, elevation: 8 },
+    reactionBubble:{ flex: 1 },
+    reactionText:  { color: colors.white, fontSize: 13, fontStyle: 'italic', lineHeight: 18 },
 
     // Modals
-    modalOverlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.78)', alignItems: 'center', justifyContent: 'center' },
-    modalCard:         { backgroundColor: colors.bgCard, borderRadius: RADIUS.xl, padding: 28, alignItems: 'center', gap: 14, marginHorizontal: 20, borderWidth: 1, borderColor: colors.purple, shadowColor: '#7c3aed', shadowOpacity: 0.5, shadowRadius: 20, elevation: 12 },
-    modalTitle:        { fontSize: 20, fontWeight: '700', color: colors.white, textAlign: 'center' },
-    modalPhrase:       { fontSize: 14, color: colors.grayLight, textAlign: 'center', lineHeight: 20 },
-    modalBtn:          { backgroundColor: colors.lime, borderRadius: RADIUS.full, paddingVertical: 13, paddingHorizontal: 28, marginTop: 4, alignSelf: 'stretch', alignItems: 'center' },
-    modalBtnText:      { color: '#0f0a1e', fontWeight: '700', fontSize: 15 },
+    modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.78)', alignItems: 'center', justifyContent: 'center' },
+    modalCard:     { backgroundColor: colors.bgCard, borderRadius: RADIUS.xl, padding: 28, alignItems: 'center', gap: 14, marginHorizontal: 20, borderWidth: 1, borderColor: colors.purple, shadowColor: '#7c3aed', shadowOpacity: 0.5, shadowRadius: 20, elevation: 12 },
+    modalTitle:    { fontSize: 20, fontWeight: '700', color: colors.white, textAlign: 'center' },
+    modalPhrase:   { fontSize: 14, color: colors.grayLight, textAlign: 'center', lineHeight: 20 },
+    modalBtn:      { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 13, paddingHorizontal: 28, marginTop: 4, alignSelf: 'stretch', alignItems: 'center' },
+    modalBtnText:  { color: '#fff', fontWeight: '700', fontSize: 15 },
 
     // Recomendación Panchita
-    recBadge:          { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 5, paddingHorizontal: 16 },
-    recBadgeText:      { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
-    recExList:         { alignSelf: 'stretch', backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12 },
-    recExItem:         { fontSize: 13, color: colors.white, lineHeight: 22 },
+    recBadge:     { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 5, paddingHorizontal: 16 },
+    recBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
+    recExList:    { alignSelf: 'stretch', backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12 },
+    recExItem:    { fontSize: 13, color: colors.white, lineHeight: 22 },
 
     // Crear rutina
-    createLabel:       { fontSize: 13, fontWeight: '700', color: colors.grayLight, alignSelf: 'flex-start' },
-    createInput:       { backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12, fontSize: 14, color: colors.white, borderWidth: 1, borderColor: colors.purpleDim, alignSelf: 'stretch' },
-    createExRow:       { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-    createRemoveBtn:   { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
-    createRemoveTxt:   { color: colors.gray, fontSize: 12 },
-    addExBtn:          { paddingVertical: 10, alignItems: 'center' },
-    addExTxt:          { color: colors.purpleLight, fontWeight: '600', fontSize: 13 },
-    createBtn:         { borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center', minHeight: 46, justifyContent: 'center' },
-    createBtnTxt:      { fontWeight: '700', fontSize: 15 },
-    createError:       { color: colors.danger || '#ef4444', fontSize: 13, lineHeight: 18, textAlign: 'center', alignSelf: 'stretch', marginTop: 8 },
+    createLabel:     { fontSize: 13, fontWeight: '700', color: colors.grayLight, alignSelf: 'flex-start' },
+    createInput:     { backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12, fontSize: 14, color: colors.white, borderWidth: 1, borderColor: colors.purpleDim, alignSelf: 'stretch' },
+    createExRow:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    createRemoveBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
+    createRemoveTxt: { color: colors.gray, fontSize: 12 },
+    addExBtn:        { paddingVertical: 10, alignItems: 'center' },
+    addExTxt:        { color: colors.purpleLight, fontWeight: '600', fontSize: 13 },
+    createBtn:       { borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center', minHeight: 46, justifyContent: 'center' },
+    createBtnTxt:    { fontWeight: '700', fontSize: 15 },
+    createError:     { color: colors.danger || '#ef4444', fontSize: 13, lineHeight: 18, textAlign: 'center', alignSelf: 'stretch', marginTop: 8 },
+
+    // Rutina recurrente toggle
+    recurringRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', alignSelf: 'stretch', backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12, borderWidth: 1, borderColor: colors.purpleDim },
+    recurringRowOn:  { borderColor: colors.purple, backgroundColor: colors.purpleDim },
+    recurringLabel:  { fontSize: 14, color: colors.grayLight, fontWeight: '600' },
+    recurringToggle: { backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: colors.purpleDim },
+    recurringToggleOn:   { backgroundColor: colors.purple, borderColor: colors.purple },
+    recurringToggleTxt:  { fontSize: 13, color: colors.gray, fontWeight: '700' },
+    recurringToggleTxtOn:{ color: '#fff' },
   });
 }

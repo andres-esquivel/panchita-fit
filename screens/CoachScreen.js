@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
-  TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+  TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
@@ -21,6 +22,45 @@ const SUGGESTIONS = [
   '¿Cuándo fue mi último entrenamiento?',
   '¿Tengo dolor muscular, entreno igual?',
 ];
+
+// ─── Dots animados (typing indicator) ────────────────────
+function TypingDots({ colors }) {
+  const dot1 = useRef(new Animated.Value(0.3)).current;
+  const dot2 = useRef(new Animated.Value(0.3)).current;
+  const dot3 = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = (dot, delay) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0.3, duration: 350, useNativeDriver: true }),
+          Animated.delay(700 - delay),
+        ])
+      );
+    const a1 = pulse(dot1, 0);
+    const a2 = pulse(dot2, 230);
+    const a3 = pulse(dot3, 460);
+    a1.start(); a2.start(); a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, []);
+
+  return (
+    <View style={{ flexDirection: 'row', gap: 5, paddingHorizontal: 2, paddingVertical: 4 }}>
+      {[dot1, dot2, dot3].map((dot, i) => (
+        <Animated.View
+          key={i}
+          style={{
+            width: 8, height: 8, borderRadius: 4,
+            backgroundColor: colors.purpleLight,
+            opacity: dot,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 
 function buildContext(user, logs, activity) {
   const completedLogs = logs.filter(l => l.completed).sort((a, b) => b.date.localeCompare(a.date));
@@ -95,16 +135,13 @@ async function buildAnalyticsContext() {
     ? Math.floor((new Date(today) - new Date(lastLog.date)) / 86400000)
     : null;
 
-  // Racha
   let streak = 0;
   for (const day of [...activity].reverse()) { if (day.trained) streak++; else break; }
 
-  // Grupos musculares abandonados (5+ días sin entrenar)
   const neglectedMuscles = Object.entries(muscleActivity)
     .filter(([, days]) => days === null || days >= 5)
     .map(([g, days]) => ({ group: MUSCLE_LABELS_ES[g] || g, days }));
 
-  // Tendencia de peso corporal (últimas 2 semanas)
   const recentWeights = bodyWeights.filter(w => {
     const daysAgo = Math.floor((new Date(today) - new Date(w.date)) / 86400000);
     return daysAgo <= 14;
@@ -113,13 +150,6 @@ async function buildAnalyticsContext() {
     ? (recentWeights[recentWeights.length - 1].weight - recentWeights[0].weight).toFixed(1)
     : null;
 
-  // Progreso de cargas esta semana
-  const thisWeekStart = new Date(); thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
-  const lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  const tsStr = thisWeekStart.toISOString().split('T')[0];
-  const lwStr = lastWeekStart.toISOString().split('T')[0];
-
-  // Sesiones sin progreso (mismos pesos)
   let weeksWithoutProgress = 0;
   for (let w = weekFreq.length - 1; w >= 0; w--) {
     if (weekFreq[w].count === 0) weeksWithoutProgress++;
@@ -166,7 +196,7 @@ function buildAnalyticsPrompt(ac) {
     lines.push(`Tendencia de peso corporal últimas 2 semanas: ${ac.weightTrend > 0 ? '+' : ''}${ac.weightTrend} kg`);
   }
 
-  const prompt = `Hacé un análisis breve y sarcástico del progreso de ${ac.name} con estos datos reales:
+  return `Hacé un análisis breve y sarcástico del progreso de ${ac.name} con estos datos reales:
 
 ${lines.join('\n')}
 
@@ -177,8 +207,6 @@ REGLAS para este análisis:
 - Terminá con un remate gracioso o consejo concreto.
 - Si hay algo positivo (racha, mejora de carga), reconocelo con humor antes de atacar lo negativo.
 - Lenguaje neutro, español latinoamericano.`;
-
-  return prompt;
 }
 
 function localCoachReply(userMessage, ctx) {
@@ -216,26 +244,41 @@ function localAnalyticsReply(ac) {
     return `Tu mejor avance fue ${ac.bestProg.name}: +${ac.bestProg.delta} kg esta semana. Milagro: la barra sí se movió.`;
   }
   if (ac.neglectedMuscles?.length) {
-    return `Tenés abandonado ${ac.neglectedMuscles[0].name}. Ese músculo ya está armando sindicato.`;
+    return `Tenés abandonado ${ac.neglectedMuscles[0].group}. Ese músculo ya está armando sindicato.`;
   }
   return 'Vas estable, que es una forma elegante de decir que todavía podés apretar más. Sin ego lifting, criatura.';
 }
 
+// ─── Llamada a la IA con timeout ──────────────────────────
+const AI_TIMEOUT_MS = 10000;
+
 async function callPanchitaAI(messages, options = {}) {
   if (Platform.OS === 'web') {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages,
-        max_tokens: options.max_tokens || 150,
-        temperature: options.temperature ?? 0.9,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Panchita API error');
-    return data.content?.trim() || '';
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller
+      ? setTimeout(() => controller.abort(), AI_TIMEOUT_MS)
+      : null;
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages,
+          max_tokens: options.max_tokens || 150,
+          temperature: options.temperature ?? 0.9,
+        }),
+        signal: controller?.signal,
+      });
+      if (timeoutId) clearTimeout(timeoutId);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Panchita API error');
+      return data.content?.trim() || '';
+    } catch (e) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (e.name === 'AbortError') throw new Error('TIMEOUT');
+      throw e;
+    }
   }
 
   if (!GROQ_API_KEY) return null;
@@ -257,14 +300,21 @@ async function callPanchitaAI(messages, options = {}) {
   return data.choices[0].message.content.trim();
 }
 
+async function callWithTimeout(promise, ms = AI_TIMEOUT_MS) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('TIMEOUT')), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
 async function askGroq(userMessage, ctx, history) {
   const messages = [
     { role: 'system', content: buildSystemPrompt(ctx) },
     ...history.slice(-6),
     { role: 'user', content: userMessage },
   ];
-
-  const reply = await callPanchitaAI(messages, { max_tokens: 150, temperature: 0.9 });
+  const aiPromise = callPanchitaAI(messages, { max_tokens: 150, temperature: 0.9 });
+  const reply = await callWithTimeout(aiPromise);
   return reply || localCoachReply(userMessage, ctx);
 }
 
@@ -272,19 +322,21 @@ export default function CoachScreen({ route }) {
   const { colors } = useTheme();
   const s = useMemo(() => createStyles(colors), [colors]);
 
-  const [messages, setMessages]         = useState([]);
-  const [input, setInput]               = useState('');
-  const [ctx, setCtx]                   = useState(null);
-  const [mood, setMood]                 = useState('idle');
-  const [loading, setLoading]           = useState(false);
+  const [messages, setMessages]           = useState([]);
+  const [input, setInput]                 = useState('');
+  const [ctx, setCtx]                     = useState(null);
+  const [mood, setMood]                   = useState('idle');
+  const [loading, setLoading]             = useState(false);
+  const [initLoading, setInitLoading]     = useState(true);
   const [analyzingProgress, setAnalyzingProgress] = useState(false);
-  const scrollRef                       = useRef();
-  const historyRef                      = useRef([]);
-  const analyticsRunRef                 = useRef(false); // evita doble disparo por focus
+  const [lastError, setLastError]         = useState(null); // mensaje fallido para retry
+
+  const scrollRef    = useRef();
+  const historyRef   = useRef([]);
+  const analyticsRunRef = useRef(false);
 
   useEffect(() => { initChat(); }, []);
 
-  // Auto-análisis cada vez que se abre la pantalla (una vez por sesión de focus)
   useFocusEffect(useCallback(() => {
     analyticsRunRef.current = false;
     return () => {};
@@ -297,15 +349,21 @@ export default function CoachScreen({ route }) {
     try {
       const ac = await buildAnalyticsContext();
       const prompt = buildAnalyticsPrompt(ac);
-      const messages = [
+      const msgs = [
         { role: 'system', content: buildSystemPrompt(ac) },
         { role: 'user', content: prompt },
       ];
-      const reply = await callPanchitaAI(messages, { max_tokens: 180, temperature: 0.85 });
+      const aiPromise = callPanchitaAI(msgs, { max_tokens: 180, temperature: 0.85 });
+      const reply = await callWithTimeout(aiPromise);
       addBotMessage(reply || localAnalyticsReply(ac));
       setMood('happy');
     } catch (e) {
-      addBotMessage('No pude analizar tu historial ahora. Revisá tu conexión y volvé a intentarlo. Mientras tanto, comé proteína.');
+      const isTimeout = e.message === 'TIMEOUT';
+      addBotMessage(
+        isTimeout
+          ? 'El servidor está tardando. Intentá de nuevo en un momento.'
+          : 'No pude analizar tu historial ahora. Revisá tu conexión.'
+      );
     } finally {
       setAnalyzingProgress(false);
     }
@@ -321,26 +379,33 @@ export default function CoachScreen({ route }) {
   }, [route?.params?.justCompleted]);
 
   async function initChat() {
-    const [user, logs, activity] = await Promise.all([getUser(), getLogs(), getWeekActivity()]);
-    const context = buildContext(user, logs, activity);
-    setCtx(context);
-    const d = context.daysSinceLastWorkout;
-    let greeting;
-    if (d === null) {
-      greeting = '¡Hola! Soy Panchita, tu coach. ¿Primer día? Bien. Todos empezaron en algún lado. Acordate: la proteína no se toma mirándola.';
-      setMood('idle');
-    } else if (d === 0) {
-      greeting = '¡Hoy ya entrenaste! Panchita está... sorprendida, positivamente. ¿Cómo te fue? Espero que hayas comido proteína después.';
-      setMood('happy');
-    } else if (d <= 2) {
-      greeting = '¡Hola, ' + context.name + '! ' + context.totalSessions + (context.totalSessions === 1 ? ' sesión' : ' sesiones') + ' encima. No está mal. ¿Qué necesitás hoy?';
-      setMood('idle');
-    } else {
-      greeting = context.name + '... ' + d + (d === 1 ? ' día' : ' días') + ' sin aparecer. Yo tampoco te extrañé. Mucho. El gym sí. ¿Volvemos?';
-      setMood('angry');
+    setInitLoading(true);
+    try {
+      const [user, logs, activity] = await Promise.all([getUser(), getLogs(), getWeekActivity()]);
+      const context = buildContext(user, logs, activity);
+      setCtx(context);
+      const d = context.daysSinceLastWorkout;
+      let greeting;
+      if (d === null) {
+        greeting = '¡Hola! Soy Panchita, tu coach. ¿Primer día? Bien. Todos empezaron en algún lado. Acordate: la proteína no se toma mirándola.';
+        setMood('idle');
+      } else if (d === 0) {
+        greeting = '¡Hoy ya entrenaste! Panchita está... sorprendida, positivamente. ¿Cómo te fue? Espero que hayas comido proteína después.';
+        setMood('happy');
+      } else if (d <= 2) {
+        greeting = '¡Hola, ' + context.name + '! ' + context.totalSessions + (context.totalSessions === 1 ? ' sesión' : ' sesiones') + ' encima. No está mal. ¿Qué necesitás hoy?';
+        setMood('idle');
+      } else {
+        greeting = context.name + '... ' + d + (d === 1 ? ' día' : ' días') + ' sin aparecer. Yo tampoco te extrañé. Mucho. El gym sí. ¿Volvemos?';
+        setMood('angry');
+      }
+      setMessages([{ id: 1, from: 'bot', text: greeting }]);
+      historyRef.current = [{ role: 'assistant', content: greeting }];
+    } catch (e) {
+      setMessages([{ id: 1, from: 'bot', text: 'Déjame calentar motores... Revisá tu conexión si esto no carga.' }]);
+    } finally {
+      setInitLoading(false);
     }
-    setMessages([{ id: 1, from: 'bot', text: greeting }]);
-    historyRef.current = [{ role: 'assistant', content: greeting }];
   }
 
   function addBotMessage(text) {
@@ -355,17 +420,30 @@ export default function CoachScreen({ route }) {
     setMessages(prev => [...prev, { id: Date.now(), from: 'user', text: userText }]);
     historyRef.current.push({ role: 'user', content: userText });
     setInput('');
+    setLastError(null);
     setLoading(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
     try {
       const reply = await askGroq(userText, ctx, historyRef.current);
       addBotMessage(reply);
     } catch (err) {
-      addBotMessage('Algo falló con mi conexión. Intentalo de nuevo. Mientras tanto, comé proteína.');
+      const isTimeout = err.message === 'TIMEOUT';
+      const errMsg = isTimeout
+        ? 'El servidor está tardando. Intentá de nuevo.'
+        : 'No me pude conectar. Revisá tu conexión.';
+      addBotMessage(errMsg);
+      setLastError(userText); // guardar para retry
       console.error('Groq error:', err);
     } finally {
       setLoading(false);
     }
+  }
+
+  function retryLastMessage() {
+    if (!lastError) return;
+    const msg = lastError;
+    setLastError(null);
+    sendMessage(msg);
   }
 
   return (
@@ -400,7 +478,13 @@ export default function CoachScreen({ route }) {
           </Text>
         </TouchableOpacity>
 
-        <ScrollView ref={scrollRef} style={s.messagesList} contentContainerStyle={s.messagesScroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollRef}
+          style={s.messagesList}
+          contentContainerStyle={s.messagesScroll}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Mensajes */}
           {messages.map(msg => (
             <View key={msg.id} style={[s.bubble, msg.from === 'user' ? s.bubbleUser : s.bubbleBot]}>
               {msg.from === 'bot' && <Panchita state="idle" size={32} autoWave={false} />}
@@ -411,16 +495,26 @@ export default function CoachScreen({ route }) {
               </View>
             </View>
           ))}
-          {loading && (
+
+          {/* Typing dots — init o loading */}
+          {(initLoading || loading) && (
             <View style={[s.bubble, s.bubbleBot]}>
               <Panchita state="idle" size={32} autoWave={false} />
               <View style={[s.bubbleInner, s.bubbleInnerBot, s.typingBubble]}>
-                <ActivityIndicator size="small" color={colors.purpleLight} />
+                <TypingDots colors={colors} />
               </View>
             </View>
           )}
+
+          {/* Botón de reintentar */}
+          {lastError && !loading && (
+            <TouchableOpacity style={s.retryBtn} onPress={retryLastMessage}>
+              <Text style={s.retryBtnText}>🔄 Reintentar</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
 
+        {/* Sugerencias */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -431,9 +525,9 @@ export default function CoachScreen({ route }) {
           {SUGGESTIONS.map((sg, i) => (
             <TouchableOpacity
               key={i}
-              style={[s.suggestChip, loading && s.suggestChipDisabled]}
+              style={[s.suggestChip, (loading || initLoading) && s.suggestChipDisabled]}
               onPress={() => sendMessage(sg)}
-              disabled={loading}
+              disabled={loading || initLoading}
               activeOpacity={0.8}
             >
               <Text style={s.suggestText}>{sg}</Text>
@@ -441,6 +535,7 @@ export default function CoachScreen({ route }) {
           ))}
         </ScrollView>
 
+        {/* Input */}
         <View style={s.inputRow}>
           <TextInput
             style={s.input}
@@ -454,12 +549,12 @@ export default function CoachScreen({ route }) {
             onSubmitEditing={() => {
               if (Platform.OS === 'web') sendMessage(input);
             }}
-            editable={!loading}
+            editable={!loading && !initLoading}
           />
           <TouchableOpacity
-            style={[s.sendBtn, (!input.trim() || loading) && s.sendBtnDisabled]}
+            style={[s.sendBtn, (!input.trim() || loading || initLoading) && s.sendBtnDisabled]}
             onPress={() => sendMessage(input)}
-            disabled={!input.trim() || loading}
+            disabled={!input.trim() || loading || initLoading}
             activeOpacity={0.85}
           >
             {loading ? (
@@ -476,36 +571,42 @@ export default function CoachScreen({ route }) {
 
 function createStyles(colors) {
   return StyleSheet.create({
-    safe:             { flex: 1, backgroundColor: colors.bg },
-    flex:             { flex: 1 },
-    coachHeader:      { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, backgroundColor: colors.bgCard },
-    analyzeBtn:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, marginTop: 2, paddingVertical: 11, borderRadius: RADIUS.full, backgroundColor: colors.purpleDim, borderWidth: 1, borderColor: colors.purple },
+    safe:              { flex: 1, backgroundColor: colors.bg },
+    flex:              { flex: 1 },
+    coachHeader:       { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, backgroundColor: colors.bgCard },
+    analyzeBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 16, marginBottom: 10, marginTop: 2, paddingVertical: 11, borderRadius: RADIUS.full, backgroundColor: colors.purpleDim, borderWidth: 1, borderColor: colors.purple },
     analyzeBtnDisabled:{ opacity: 0.6 },
-    analyzeIcon:      { fontSize: 15 },
-    analyzeBtnText:   { fontSize: 14, fontWeight: '700', color: colors.purpleLight },
-    coachName:        { fontSize: 17, fontWeight: '700', color: colors.white },
-    coachSub:         { fontSize: 12, color: colors.gray },
-    onlineDot:        { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.lime },
-    messagesList:     { flex: 1 },    messagesScroll:   { padding: 16, paddingBottom: 8, gap: 12 },
-    bubble:           { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-    bubbleUser:       { justifyContent: 'flex-end' },
-    bubbleBot:        { justifyContent: 'flex-start' },
-    bubbleInner:      { maxWidth: '78%', borderRadius: RADIUS.lg, padding: 12 },
-    bubbleInnerBot:   { backgroundColor: colors.bgCard, borderTopLeftRadius: 4 },
-    bubbleInnerUser:  { backgroundColor: colors.purple, borderTopRightRadius: 4 },
-    bubbleText:       { fontSize: 15, lineHeight: 21 },
-    bubbleTextBot:    { color: colors.white },
-    bubbleTextUser:   { color: '#ffffff' },
-    typingBubble:     { paddingVertical: 14, paddingHorizontal: 20 },
-    suggestScroll:    { paddingTop: 8, paddingBottom: 10, flexGrow: 0 },
-    suggestContent:   { paddingHorizontal: 16, alignItems: 'center' },
-    suggestChip:      { backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, borderWidth: 1, borderColor: colors.purpleDim },
+    analyzeIcon:       { fontSize: 15 },
+    analyzeBtnText:    { fontSize: 14, fontWeight: '700', color: colors.purpleLight },
+    coachName:         { fontSize: 17, fontWeight: '700', color: colors.white },
+    coachSub:          { fontSize: 12, color: colors.gray },
+    onlineDot:         { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.lime },
+    messagesList:      { flex: 1 },
+    messagesScroll:    { padding: 16, paddingBottom: 8, gap: 12 },
+    bubble:            { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+    bubbleUser:        { justifyContent: 'flex-end' },
+    bubbleBot:         { justifyContent: 'flex-start' },
+    bubbleInner:       { maxWidth: '78%', borderRadius: RADIUS.lg, padding: 12 },
+    bubbleInnerBot:    { backgroundColor: colors.bgCard, borderTopLeftRadius: 4 },
+    bubbleInnerUser:   { backgroundColor: colors.purple, borderTopRightRadius: 4 },
+    bubbleText:        { fontSize: 15, lineHeight: 21 },
+    bubbleTextBot:     { color: colors.white },
+    bubbleTextUser:    { color: '#ffffff' },
+    typingBubble:      { paddingVertical: 12, paddingHorizontal: 16 },
+
+    // Retry
+    retryBtn:          { alignSelf: 'center', marginTop: 4, paddingVertical: 8, paddingHorizontal: 20, borderRadius: RADIUS.full, backgroundColor: colors.purpleDim, borderWidth: 1, borderColor: colors.purple },
+    retryBtnText:      { color: colors.purpleLight, fontWeight: '700', fontSize: 13 },
+
+    suggestScroll:     { paddingTop: 8, paddingBottom: 10, flexGrow: 0 },
+    suggestContent:    { paddingHorizontal: 16, alignItems: 'center' },
+    suggestChip:       { backgroundColor: colors.bgCard, borderRadius: RADIUS.full, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, borderWidth: 1, borderColor: colors.purpleDim },
     suggestChipDisabled:{ opacity: 0.55 },
-    suggestText:      { fontSize: 13, color: colors.purpleLight },
-    inputRow:         { flexDirection: 'row', padding: 12, gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.purpleDim },
-    input:            { flex: 1, minHeight: 46, backgroundColor: colors.bgInput, borderRadius: RADIUS.lg, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: colors.white, maxHeight: 88, borderWidth: 1, borderColor: colors.purpleDim },
-    sendBtn:          { backgroundColor: colors.purple, minWidth: 82, height: 46, borderRadius: RADIUS.full, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
-    sendBtnDisabled:  { backgroundColor: colors.purpleDim, opacity: 0.65 },
-    sendBtnText:      { color: '#ffffff', fontSize: 14, fontWeight: '800' },
+    suggestText:       { fontSize: 13, color: colors.purpleLight },
+    inputRow:          { flexDirection: 'row', padding: 12, gap: 10, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.purpleDim },
+    input:             { flex: 1, minHeight: 46, backgroundColor: colors.bgInput, borderRadius: RADIUS.lg, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, color: colors.white, maxHeight: 88, borderWidth: 1, borderColor: colors.purpleDim },
+    sendBtn:           { backgroundColor: colors.purple, minWidth: 82, height: 46, borderRadius: RADIUS.full, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+    sendBtnDisabled:   { backgroundColor: colors.purpleDim, opacity: 0.65 },
+    sendBtnText:       { color: '#ffffff', fontSize: 14, fontWeight: '800' },
   });
 }
