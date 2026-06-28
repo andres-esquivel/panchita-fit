@@ -1,50 +1,50 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DARK_COLORS, LIGHT_COLORS, BEAST_COLORS } from '../constants/theme';
+import { PALETTES } from '../constants/theme';
 
 const ThemeContext = createContext();
 
 const STORAGE_KEY = '@panchita_theme';
+const VALID_PALETTES = ['purple', 'light', 'beast', 'ocean', 'fire', 'jungle'];
+
+// Migración de valores viejos → nuevas claves
+function migratePaletteKey(val) {
+  if (!val) return 'purple';
+  if (val === 'dark') return 'purple';   // 'dark' era el default viejo
+  if (VALID_PALETTES.includes(val)) return val;
+  return 'purple';
+}
 
 export function ThemeProvider({ children }) {
-  // 'dark' | 'light' | 'beast'
-  const [theme, setThemeState] = useState('dark');
-  const [ready, setReady] = useState(false);
+  const [palette, setPaletteState] = useState('purple');
+  const [ready,   setReady]        = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
-      .then(val => {
-        if (val === 'dark' || val === 'light' || val === 'beast') {
-          setThemeState(val);
-        }
-        // Backward compat: old values were 'dark'/'light' strings — already handled above
-      })
+      .then(val => setPaletteState(migratePaletteKey(val)))
       .finally(() => setReady(true));
   }, []);
 
-  function setTheme(t) {
-    setThemeState(t);
-    AsyncStorage.setItem(STORAGE_KEY, t).catch(() => {});
+  function setTheme(key) {
+    if (!VALID_PALETTES.includes(key)) return;
+    setPaletteState(key);
+    AsyncStorage.setItem(STORAGE_KEY, key).catch(() => {});
   }
 
-  // Compat: isDark = true para 'dark' y 'beast' (ambos tienen fondo oscuro)
-  const isDark = theme !== 'light';
+  // Backward compat
+  const isDark    = palette !== 'light';
+  const theme     = palette; // theme === palette key
 
-  // Compat: toggleTheme alterna dark ↔ light (usado por código viejo)
   function toggleTheme() {
-    setTheme(isDark ? 'light' : 'dark');
+    setTheme(isDark ? 'light' : 'purple');
   }
 
-  const colors = useMemo(() => {
-    if (theme === 'beast') return BEAST_COLORS;
-    if (theme === 'light') return LIGHT_COLORS;
-    return DARK_COLORS;
-  }, [theme]);
+  const colors = useMemo(() => PALETTES[palette] || PALETTES.purple, [palette]);
 
   if (!ready) return null;
 
   return (
-    <ThemeContext.Provider value={{ isDark, theme, setTheme, toggleTheme, colors }}>
+    <ThemeContext.Provider value={{ isDark, theme, palette, setTheme, toggleTheme, colors }}>
       {children}
     </ThemeContext.Provider>
   );

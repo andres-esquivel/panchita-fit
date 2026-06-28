@@ -9,15 +9,37 @@ import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { getWeightUnit, saveWeightUnit } from '../storage';
 
-const THEMES = [
-  { key: 'dark',  label: 'Modo Oscuro',  emoji: '🌙', sub: 'El gym se entrena de noche' },
-  { key: 'light', label: 'Modo Claro',   emoji: '☀️', sub: 'La vitamina D también cuenta' },
-  { key: 'beast', label: 'Modo Bestia',  emoji: '⚡', sub: 'Verde neón. Cero excusas.' },
+// ─── Meta de paletas (UI preview) ─────────────────────────────
+const PALETTE_OPTIONS = [
+  {
+    key: 'purple', emoji: '🌙', name: 'Noche\nPúrpura',
+    previewBg: '#0d0d1a', previewAccent: '#7c3aed', previewBtn: '#a855f7',
+  },
+  {
+    key: 'light',  emoji: '☀️', name: 'Día\nClaro',
+    previewBg: '#f8f8f8', previewAccent: '#6d28d9', previewBtn: '#7c3aed',
+  },
+  {
+    key: 'beast',  emoji: '⚡', name: 'Modo\nBestia',
+    previewBg: '#0a0a0a', previewAccent: '#39ff14', previewBtn: '#39ff14',
+  },
+  {
+    key: 'ocean',  emoji: '🌊', name: 'Océano',
+    previewBg: '#0a1628', previewAccent: '#0ea5e9', previewBtn: '#38bdf8',
+  },
+  {
+    key: 'fire',   emoji: '🔥', name: 'Fuego',
+    previewBg: '#1a0a0a', previewAccent: '#ef4444', previewBtn: '#f97316',
+  },
+  {
+    key: 'jungle', emoji: '🌿', name: 'Selva',
+    previewBg: '#0a1a0a', previewAccent: '#22c55e', previewBtn: '#4ade80',
+  },
 ];
 
 export default function SettingsScreen() {
-  const { theme, setTheme, colors } = useTheme();
-  const s = useMemo(() => createStyles(colors, theme), [colors, theme]);
+  const { palette, setTheme, colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
 
   const [weightUnit, setWeightUnit] = useState('kg');
 
@@ -37,48 +59,61 @@ export default function SettingsScreen() {
     ]);
   }
 
-  const isBeast = theme === 'beast';
-
   return (
     <SafeAreaView style={s.safe}>
-      <ScrollView contentContainerStyle={s.scroll}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+
         <View style={s.header}>
-          <Text style={s.headerTitle}>{isBeast ? '⚡ Ajustes' : 'Ajustes'}</Text>
+          <Text style={s.headerTitle}>Ajustes</Text>
           <Text style={s.headerSub}>Personalizá tu experiencia</Text>
         </View>
 
         {/* ── APARIENCIA ── */}
         <Text style={s.sectionTitle}>APARIENCIA</Text>
-        <View style={s.card}>
-          {THEMES.map((t, i) => {
-            const isActive = theme === t.key;
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.palettesScroll}
+          decelerationRate="fast"
+          snapToInterval={130}
+        >
+          {PALETTE_OPTIONS.map(opt => {
+            const isActive = palette === opt.key;
             return (
               <TouchableOpacity
-                key={t.key}
-                style={[
-                  s.themeRow,
-                  i < THEMES.length - 1 && s.themeRowBorder,
-                  isActive && s.themeRowActive,
-                ]}
-                onPress={() => setTheme(t.key)}
-                activeOpacity={0.7}
+                key={opt.key}
+                style={[s.paletteCard, isActive && s.paletteCardActive,
+                  { borderColor: isActive ? opt.previewAccent : colors.purpleDim }]}
+                onPress={() => setTheme(opt.key)}
+                activeOpacity={0.75}
               >
-                <View style={[s.themeEmoji, isActive && s.themeEmojiActive]}>
-                  <Text style={{ fontSize: 20 }}>{t.emoji}</Text>
+                {/* Mini preview del fondo de la paleta */}
+                <View style={[s.paletteBg, { backgroundColor: opt.previewBg }]}>
+                  <Text style={s.paletteEmoji}>{opt.emoji}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.themeLabel, isActive && s.themeLabelActive]}>
-                    {t.label}
-                  </Text>
-                  <Text style={s.themeSub}>{t.sub}</Text>
+
+                {/* Tres círculos de color */}
+                <View style={s.paletteCircles}>
+                  <View style={[s.circle, { backgroundColor: opt.previewBg, borderWidth: 1, borderColor: colors.purpleDim }]} />
+                  <View style={[s.circle, { backgroundColor: opt.previewAccent }]} />
+                  <View style={[s.circle, { backgroundColor: opt.previewBtn }]} />
                 </View>
-                <View style={[s.themeCheck, isActive && s.themeCheckActive]}>
-                  {isActive && <Text style={s.themeCheckTxt}>✓</Text>}
-                </View>
+
+                {/* Nombre */}
+                <Text style={[s.paletteName, isActive && { color: opt.previewAccent }]} numberOfLines={2}>
+                  {opt.name}
+                </Text>
+
+                {/* Checkmark activo */}
+                {isActive && (
+                  <View style={[s.paletteCheck, { backgroundColor: opt.previewAccent }]}>
+                    <Text style={[s.paletteCheckTxt, { color: colors.accentText }]}>✓</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         {/* ── ENTRENAMIENTO ── */}
         <Text style={s.sectionTitle}>ENTRENAMIENTO</Text>
@@ -88,9 +123,9 @@ export default function SettingsScreen() {
               <View style={s.iconBg}>
                 <Text style={{ fontSize: 18 }}>⚖️</Text>
               </View>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>Unidad de peso</Text>
-                <Text style={s.rowSub}>Para registrar pesos en los ejercicios</Text>
+                <Text style={s.rowSub}>Valor por defecto en ejercicios nuevos</Text>
               </View>
             </View>
             <View style={s.unitToggle}>
@@ -132,7 +167,7 @@ export default function SettingsScreen() {
           </View>
           <View style={[s.infoRow, s.infoRowLast]}>
             <Text style={s.infoLabel}>Hecha con</Text>
-            <Text style={s.infoValue}>{isBeast ? '⚡ y mucho gym' : '💜 y mucho gym'}</Text>
+            <Text style={s.infoValue}>💜 y mucho gym</Text>
           </View>
         </View>
 
@@ -155,18 +190,14 @@ export default function SettingsScreen() {
           <Text style={s.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
 
-        <Text style={s.footer}>
-          {isBeast ? '⚡ PanchitaFit · Modo Bestia activado' : 'PanchitaFit · Tu coach salchicha favorita 🐾'}
-        </Text>
+        <Text style={s.footer}>PanchitaFit · Tu coach salchicha favorita 🐾</Text>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function createStyles(colors, theme) {
-  const isBeast = theme === 'beast';
-  const accent = colors.purple;
-
+function createStyles(colors) {
   return StyleSheet.create({
     safe:   { flex: 1, backgroundColor: colors.bg },
     scroll: { padding: 20, paddingTop: 16, paddingBottom: 60 },
@@ -176,46 +207,101 @@ function createStyles(colors, theme) {
     headerSub:   { fontSize: 15, color: colors.gray },
 
     sectionTitle: {
-      fontSize: 11, fontWeight: '700', color: accent,
-      letterSpacing: 1.2, marginBottom: 8, marginTop: 24, marginLeft: 4,
+      fontSize: 11, fontWeight: '700', color: colors.purple,
+      letterSpacing: 1.2, marginBottom: 10, marginTop: 24, marginLeft: 2,
     },
 
-    card: { backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, overflow: 'hidden', borderWidth: isBeast ? 1 : 0, borderColor: isBeast ? 'rgba(57,255,20,0.2)' : 'transparent' },
+    // ── Paletas horizontales ──
+    palettesScroll: { paddingVertical: 4, paddingRight: 8 },
+    paletteCard: {
+      width: 118, marginRight: 10,
+      backgroundColor: colors.bgCard,
+      borderRadius: RADIUS.lg,
+      borderWidth: 2,
+      borderColor: colors.purpleDim,
+      overflow: 'hidden',
+      position: 'relative',
+    },
+    paletteCardActive: {
+      shadowColor: colors.purple,
+      shadowOpacity: 0.5, shadowRadius: 10, elevation: 6,
+    },
+    paletteBg: {
+      height: 58, alignItems: 'center', justifyContent: 'center',
+    },
+    paletteEmoji: { fontSize: 26 },
+    paletteCircles: {
+      flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingTop: 10,
+    },
+    circle: {
+      width: 18, height: 18, borderRadius: 9,
+    },
+    paletteName: {
+      fontSize: 11, fontWeight: '700', color: colors.grayLight,
+      paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12,
+      lineHeight: 15,
+    },
+    paletteCheck: {
+      position: 'absolute', top: 6, right: 6,
+      width: 20, height: 20, borderRadius: 10,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    paletteCheckTxt: { fontSize: 11, fontWeight: '900' },
 
-    // ── Selector de tema ──
-    themeRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
-    themeRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.purpleDim },
-    themeRowActive: { backgroundColor: isBeast ? 'rgba(57,255,20,0.06)' : colors.purpleDim + '44' },
-    themeEmoji: { width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center' },
-    themeEmojiActive: { backgroundColor: accent + '33' },
-    themeLabel: { fontSize: 15, fontWeight: '600', color: colors.grayLight },
-    themeLabelActive: { color: accent, fontWeight: '700' },
-    themeSub: { fontSize: 12, color: colors.gray, marginTop: 2 },
-    themeCheck: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.purpleDim, alignItems: 'center', justifyContent: 'center' },
-    themeCheckActive: { backgroundColor: accent, borderColor: accent },
-    themeCheckTxt: { color: isBeast ? '#000' : '#fff', fontSize: 12, fontWeight: '800' },
+    // ── Card genérica ──
+    card: {
+      backgroundColor: colors.bgCard,
+      borderRadius: RADIUS.lg,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.purpleDim,
+    },
 
     // ── Fila genérica ──
-    row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16 },
-    rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    iconBg: { width: 38, height: 38, borderRadius: RADIUS.md, backgroundColor: colors.bgInput, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-    rowLabel: { fontSize: 16, fontWeight: '600', color: colors.white },
-    rowSub: { fontSize: 12, color: colors.gray, marginTop: 2 },
+    row: {
+      flexDirection: 'row', alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 14, paddingHorizontal: 16,
+    },
+    rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
+    iconBg: {
+      width: 38, height: 38, borderRadius: RADIUS.md,
+      backgroundColor: colors.bgInput,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    rowLabel: { fontSize: 15, fontWeight: '600', color: colors.white },
+    rowSub:   { fontSize: 11, color: colors.gray, marginTop: 2 },
 
     // ── Toggle kg/lb ──
-    unitToggle: { flexDirection: 'row', backgroundColor: colors.bgInput, borderRadius: RADIUS.full, padding: 3, borderWidth: 1, borderColor: colors.purpleDim },
-    unitBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full },
-    unitBtnActive: { backgroundColor: accent },
-    unitBtnText: { fontSize: 14, fontWeight: '700', color: colors.gray },
-    unitBtnTextActive: { color: isBeast ? '#000' : '#fff' },
+    unitToggle: {
+      flexDirection: 'row', backgroundColor: colors.bgInput,
+      borderRadius: RADIUS.full, padding: 3,
+      borderWidth: 1, borderColor: colors.purpleDim,
+    },
+    unitBtn:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full },
+    unitBtnActive:   { backgroundColor: colors.purple },
+    unitBtnText:     { fontSize: 14, fontWeight: '700', color: colors.gray },
+    unitBtnTextActive: { color: colors.accentText },
 
     // ── Info rows ──
-    infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: colors.purpleDim },
+    infoRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      paddingVertical: 14, paddingHorizontal: 16,
+      borderBottomWidth: 1, borderBottomColor: colors.purpleDim,
+    },
     infoRowLast: { borderBottomWidth: 0 },
-    infoLabel: { fontSize: 15, color: colors.grayLight },
-    infoValue: { fontSize: 15, color: colors.white, fontWeight: '500', maxWidth: '60%', textAlign: 'right' },
+    infoLabel:   { fontSize: 15, color: colors.grayLight },
+    infoValue:   { fontSize: 15, color: colors.white, fontWeight: '500', maxWidth: '60%', textAlign: 'right' },
 
-    logoutBtn: { marginTop: 28, backgroundColor: '#3f0f0f', borderRadius: RADIUS.full, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: colors.danger },
+    logoutBtn: {
+      marginTop: 28,
+      backgroundColor: '#3f0f0f',
+      borderRadius: RADIUS.full,
+      paddingVertical: 16,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
     logoutText: { color: colors.danger, fontWeight: '700', fontSize: 16 },
     footer: { textAlign: 'center', color: colors.gray, fontSize: 13, marginTop: 32 },
   });

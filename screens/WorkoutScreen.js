@@ -213,22 +213,8 @@ export default function WorkoutScreen({ navigation }) {
     getWeightUnit().then(u=>{ setWeightUnit(u); prevWeightUnitRef.current=u; });
   },[]);
 
-  // Convertir pesos existentes cuando cambia la unidad
-  useEffect(()=>{
-    const prev = prevWeightUnitRef.current;
-    if (prev===weightUnit || !log) return;
-    prevWeightUnitRef.current = weightUnit;
-    setLog(l=>({
-      ...l,
-      exercises: (l.exercises||[]).map(ex=>({
-        ...ex,
-        sets: (ex.sets||[]).map(st=>({
-          ...st,
-          weight: st.weight ? convertWeightValue(st.weight, prev, weightUnit) : st.weight,
-        })),
-      })),
-    }));
-  },[weightUnit]);
+  // Nota: la unidad global (weightUnit) solo es el default para ejercicios nuevos.
+  // Cada ejercicio tiene su propia unidad (ex.unit). Ver T2.
 
   // Autosave
   useEffect(()=>{
@@ -318,7 +304,7 @@ export default function WorkoutScreen({ navigation }) {
       workoutId: workout.id,
       workoutName: workout.name || workout.day,
       completed: false,
-      exercises: exerciseNames.map(name=>({ name, sets:[{ reps:'', weight:'' }] })),
+      exercises: exerciseNames.map(name=>({ name, unit: weightUnit, sets:[{ reps:'', weight:'' }] })),
     };
 
     setLog(blankLog);
@@ -341,6 +327,7 @@ export default function WorkoutScreen({ navigation }) {
           exercises: (todayLog.exercises||[]).map((ex,i)=>({
             ...ex,
             name: ex.name || exerciseNames[i] || `Ejercicio ${i+1}`,
+            unit: ex.unit || weightUnit,   // restaurar unidad guardada
           })),
         };
         setLog(validatedLog);
@@ -356,6 +343,7 @@ export default function WorkoutScreen({ navigation }) {
             if (!lastEx) return ex;
             return {
               ...ex,
+              unit: lastEx.unit || ex.unit,  // restaurar unidad del log anterior
               sets: (lastEx.sets||[]).map(st=>({ reps:st.reps||'', weight:st.weight||'', done:false })),
             };
           }),
@@ -457,6 +445,30 @@ export default function WorkoutScreen({ navigation }) {
     });
   },[]);
 
+  // ─── Cambiar unidad por ejercicio ─────────────────────────
+  const setExUnit = useCallback((exIdx, newUnit)=>{
+    setLog(prev=>{
+      const ex = prev.exercises[exIdx];
+      if (!ex) return prev;
+      const oldUnit = ex.unit || 'kg';
+      if (oldUnit === newUnit) return prev;
+      return {
+        ...prev,
+        exercises: prev.exercises.map((e, ei)=>{
+          if (ei!==exIdx) return e;
+          return {
+            ...e,
+            unit: newUnit,
+            sets: e.sets.map(st=>({
+              ...st,
+              weight: st.weight ? convertWeightValue(st.weight, oldUnit, newUnit) : st.weight,
+            })),
+          };
+        }),
+      };
+    });
+  },[]);
+
   // ─── Guardar / terminar ───────────────────────────────────
   async function saveProgress() {
     if (!log) return;
@@ -493,6 +505,12 @@ export default function WorkoutScreen({ navigation }) {
       console.warn('finish workout failed:',e);
       Alert.alert('Panchita dice:','No pude terminar la rutina. Intentá otra vez.');
     } finally { setSaving(false); }
+  }
+
+  function getLastExUnit(exName) {
+    if (!lastLog) return null;
+    const ex = lastLog.exercises?.find(e=>e.name===exName);
+    return ex?.unit || null;
   }
 
   function getLastValue(exName, setIdx, field) {
@@ -681,7 +699,7 @@ export default function WorkoutScreen({ navigation }) {
     const routine = { id:`rec_${recommendation.group}`, day:`${recommendation.label.charAt(0).toUpperCase()+recommendation.label.slice(1)} (Panchita)`, exercises:recommendation.exercises };
     setShowRecommend(false);
     setSelectedWorkout(routine);
-    setLog({ date:TODAY, workoutId:routine.id, completed:false, exercises:routine.exercises.map(name=>({ name, sets:[{ reps:'',weight:'' }] })) });
+    setLog({ date:TODAY, workoutId:routine.id, completed:false, exercises:routine.exercises.map(name=>({ name, unit:weightUnit, sets:[{ reps:'',weight:'' }] })) });
     setCompleted(false); setLastLog(null);
   }
 
@@ -990,8 +1008,22 @@ export default function WorkoutScreen({ navigation }) {
         {/* Tarjetas de ejercicios */}
         {(log?.exercises||[]).map((ex, exIdx)=>(
           <View key={exIdx} style={s.exCard}>
-            {/* Nombre del ejercicio — completo, sin truncar */}
-            <Text style={s.exName}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
+            {/* Header: nombre + toggle de unidad */}
+            <View style={s.exHeader}>
+              <Text style={[s.exName,{flex:1,marginBottom:0}]}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
+              <View style={s.exUnitToggle}>
+                {['kg','lb'].map(u=>(
+                  <TouchableOpacity
+                    key={u}
+                    style={[s.exUnitBtn,(ex.unit||weightUnit)===u&&s.exUnitBtnActive]}
+                    onPress={()=>setExUnit(exIdx,u)}
+                    hitSlop={{top:6,bottom:6,left:6,right:6}}
+                  >
+                    <Text style={[s.exUnitTxt,(ex.unit||weightUnit)===u&&s.exUnitTxtActive]}>{u}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
 
             {/* Sets — tarjeta vertical por set */}
             {(ex.sets||[]).map((st, setIdx)=>{
@@ -1050,7 +1082,7 @@ export default function WorkoutScreen({ navigation }) {
                       />
                     </View>
                     <View style={s.setInputGroup}>
-                      <Text style={s.setInputLabel}>{weightUnit.toUpperCase()}</Text>
+                      <Text style={s.setInputLabel}>{(ex.unit||weightUnit).toUpperCase()}</Text>
                       <TextInput
                         style={[s.setInput, isDone&&s.setInputDone]}
                         value={String(st.weight||'')}
@@ -1068,7 +1100,7 @@ export default function WorkoutScreen({ navigation }) {
                   {/* ── Anterior ── */}
                   {hasPrev&&!isDone&&(
                     <Text style={s.setPrevText}>
-                      Ant: {prevReps||'—'} reps × {prevWeight||'—'} {weightUnit}
+                      Ant: {prevReps||'—'} reps × {prevWeight||'—'} {getLastExUnit(ex.name)||ex.unit||weightUnit}
                     </Text>
                   )}
                 </View>
@@ -1184,7 +1216,21 @@ function createStyles(colors) {
 
     // Tarjeta ejercicio
     exCard: { backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:14, marginBottom:14 },
-    exName: { fontSize:17, fontWeight:'800', color:colors.white, marginBottom:12, letterSpacing:0.1 },
+
+    // Header: nombre + toggle de unidad
+    exHeader: { flexDirection:'row', alignItems:'center', marginBottom:12, gap:8 },
+    exName: { fontSize:17, fontWeight:'800', color:colors.white, letterSpacing:0.1 },
+
+    // Toggle kg/lb por ejercicio
+    exUnitToggle: {
+      flexDirection:'row', backgroundColor:colors.bgInput,
+      borderRadius:RADIUS.full, padding:2,
+      borderWidth:1, borderColor:colors.purpleDim, flexShrink:0,
+    },
+    exUnitBtn:       { paddingHorizontal:8, paddingVertical:4, borderRadius:RADIUS.full, minWidth:30, alignItems:'center' },
+    exUnitBtnActive: { backgroundColor:colors.purple },
+    exUnitTxt:       { fontSize:11, fontWeight:'700', color:colors.gray },
+    exUnitTxtActive: { color:colors.accentText||'#fff' },
 
     // ── Tarjeta de set (layout vertical) ──
     setCard: {
