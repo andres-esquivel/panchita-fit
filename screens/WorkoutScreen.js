@@ -20,6 +20,7 @@ import { IconShare } from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
+import ActiveWorkoutScreen from './ActiveWorkoutScreen';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
@@ -245,6 +246,7 @@ export default function WorkoutScreen({ navigation, route }) {
   const [showRoutineModal, setShowRoutineModal]       = useState(false);
   const [routineModalTarget, setRoutineModalTarget]   = useState(null);
   const [routineModalDaysSince, setRoutineModalDaysSince] = useState(null);
+  const [activeWorkoutRoutine, setActiveWorkoutRoutine] = useState(null);
   const [showHistoryView, setShowHistoryView]         = useState(false);
   const [historyLogs, setHistoryLogs]                 = useState([]);
   const [historyDetailLog, setHistoryDetailLog]       = useState(null);
@@ -900,7 +902,7 @@ export default function WorkoutScreen({ navigation, route }) {
 
   function startNewSession() {
     setShowRoutineModal(false);
-    if (routineModalTarget) selectWorkout(routineModalTarget);
+    if (routineModalTarget) setActiveWorkoutRoutine(routineModalTarget);
   }
 
   // ─── Recomendación ────────────────────────────────────────
@@ -916,11 +918,31 @@ export default function WorkoutScreen({ navigation, route }) {
 
   function useRecommendedRoutine() {
     if (!recommendation) return;
-    const routine = { id:`rec_${recommendation.group}`, day:`${recommendation.label.charAt(0).toUpperCase()+recommendation.label.slice(1)} (Panchita)`, exercises:recommendation.exercises };
+    const routine = {
+      id:`rec_${recommendation.group}`,
+      name:`${recommendation.label.charAt(0).toUpperCase()+recommendation.label.slice(1)} (Panchita)`,
+      day:`${recommendation.label.charAt(0).toUpperCase()+recommendation.label.slice(1)} (Panchita)`,
+      exercises:recommendation.exercises,
+    };
     setShowRecommend(false);
-    setSelectedWorkout(routine);
-    setLog({ date:TODAY, workoutId:routine.id, completed:false, exercises:routine.exercises.map(name=>({ name, unit:weightUnit, sets:[{ reps:'',weight:'' }] })) });
-    setCompleted(false); setLastLog(null);
+    setActiveWorkoutRoutine(routine);
+  }
+
+  function closeActiveWorkout() {
+    setActiveWorkoutRoutine(null);
+    setSelectedWorkout(null);
+    setLog(null);
+    setCompleted(false);
+    loadAll();
+  }
+
+  function finishActiveWorkout() {
+    setActiveWorkoutRoutine(null);
+    setSelectedWorkout(null);
+    setLog(null);
+    setCompleted(false);
+    loadAll();
+    navigation.navigate('Inicio');
   }
 
   // Lista ordenada por último uso (más reciente arriba)
@@ -934,6 +956,16 @@ export default function WorkoutScreen({ navigation, route }) {
   },[customRoutines, lastUsedMap]);
 
   // ─── Render ──────────────────────────────────────────────
+  if (activeWorkoutRoutine) {
+    return (
+      <ActiveWorkoutScreen
+        routine={activeWorkoutRoutine}
+        onClose={closeActiveWorkout}
+        onFinish={finishActiveWorkout}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={s.safe}>
       {/* Popup autosave */}
