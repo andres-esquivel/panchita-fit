@@ -2,7 +2,10 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   TouchableOpacity, TextInput, Modal, Alert, Animated, Keyboard, ActivityIndicator,
+  Dimensions, KeyboardAvoidingView, Platform,
 } from 'react-native';
+
+const SCREEN_W = Dimensions.get('window').width;
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
@@ -681,7 +684,7 @@ export default function WorkoutScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Header modo A/B */}
+      {/* Header modo A/B — fila única */}
       <View style={s.modeHeader}>
         <View style={s.modeTabs}>
           <TouchableOpacity style={[s.modeTab,mode==='base'&&s.modeTabActive]} onPress={()=>switchMode('base')}>
@@ -691,8 +694,9 @@ export default function WorkoutScreen({ navigation }) {
             <Text style={[s.modeTabText,mode==='custom'&&s.modeTabTextActive]}>Personalizadas</Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation}>
-          <Text style={s.recommendBtnText}>¿Qué entreno hoy?</Text>
+        {/* Botón recomendación como icono compacto */}
+        <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+          <Text style={s.recommendBtnIcon}>✨</Text>
         </TouchableOpacity>
       </View>
 
@@ -731,7 +735,8 @@ export default function WorkoutScreen({ navigation }) {
       )}
 
       {/* Lista de ejercicios */}
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={90}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {!log&&(
           <View style={s.emptyState}>
             {mode==='custom'?(
@@ -754,7 +759,15 @@ export default function WorkoutScreen({ navigation }) {
             {/* Nombre del ejercicio */}
             <Text style={s.exName}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
 
-            {/* Sets — layout vertical */}
+            {/* Cabecera de columnas — solo aparece una vez */}
+            <View style={s.setHeaderRow}>
+              <View style={s.setNumCol}><Text style={s.colHeader}>#</Text></View>
+              <View style={s.inputCol}><Text style={s.colHeader}>REPS</Text></View>
+              <View style={s.inputCol}><Text style={s.colHeader}>{weightUnit.toUpperCase()}</Text></View>
+              <View style={s.actionCols}><Text style={s.colHeader}>  </Text></View>
+            </View>
+
+            {/* Sets — una fila por set */}
             {(ex.sets||[]).map((st, setIdx)=>{
               const prevReps   = getLastValue(ex.name, setIdx, 'reps');
               const prevWeight = getLastValue(ex.name, setIdx, 'weight');
@@ -762,17 +775,15 @@ export default function WorkoutScreen({ navigation }) {
               const isDone     = !!st.done;
 
               return (
-                <View key={setIdx} style={[s.setBlock, isDone&&s.setBlockDone]}>
-                  {/* Label del set */}
-                  <Text style={[s.setBlockLabel, isDone&&s.setBlockLabelDone]}>
-                    Set {setIdx+1}{isDone?' ✓':''}
-                  </Text>
+                <View key={setIdx}>
+                  <View style={[s.setRow, isDone&&s.setRowDone]}>
+                    {/* Número de set */}
+                    <View style={s.setNumCol}>
+                      <Text style={[s.setNum, isDone&&s.setNumDone]}>{setIdx+1}</Text>
+                    </View>
 
-                  {/* Fila de inputs */}
-                  <View style={s.setInputRow}>
                     {/* REPS */}
-                    <View style={s.inputGroup}>
-                      <Text style={s.inputGroupLabel}>REPS</Text>
+                    <View style={s.inputCol}>
                       <TextInput
                         style={[s.bigInput, isDone&&s.bigInputDone]}
                         value={String(st.reps||'')}
@@ -786,8 +797,7 @@ export default function WorkoutScreen({ navigation }) {
                     </View>
 
                     {/* KG / LB */}
-                    <View style={s.inputGroup}>
-                      <Text style={s.inputGroupLabel}>{weightUnit.toUpperCase()}</Text>
+                    <View style={s.inputCol}>
                       <TextInput
                         style={[s.bigInput, isDone&&s.bigInputDone]}
                         value={String(st.weight||'')}
@@ -800,31 +810,31 @@ export default function WorkoutScreen({ navigation }) {
                       />
                     </View>
 
-                    {/* Botón ✓ */}
-                    <TouchableOpacity
-                      style={[s.doneBtn, isDone&&s.doneBtnActive]}
-                      onPress={()=>toggleSetDone(exIdx,setIdx)}
-                      hitSlop={{top:8,bottom:8,left:8,right:8}}
-                    >
-                      <Text style={[s.doneBtnTxt, isDone&&s.doneBtnTxtActive]}>✓</Text>
-                    </TouchableOpacity>
-
-                    {/* Botón − / limpiar */}
-                    <TouchableOpacity
-                      style={s.removeBtn}
-                      onPress={()=>removeSet(exIdx,setIdx)}
-                      hitSlop={{top:8,bottom:8,left:8,right:8}}
-                    >
-                      <Text style={s.removeTxt}>
-                        {ex.sets.length>1?'−':'✕'}
-                      </Text>
-                    </TouchableOpacity>
+                    {/* Botones acción */}
+                    <View style={s.actionCols}>
+                      {/* ✓ */}
+                      <TouchableOpacity
+                        style={[s.doneBtn, isDone&&s.doneBtnActive]}
+                        onPress={()=>toggleSetDone(exIdx,setIdx)}
+                        hitSlop={{top:6,bottom:6,left:6,right:6}}
+                      >
+                        <Text style={[s.doneBtnTxt, isDone&&s.doneBtnTxtActive]}>✓</Text>
+                      </TouchableOpacity>
+                      {/* − */}
+                      <TouchableOpacity
+                        style={s.removeBtn}
+                        onPress={()=>removeSet(exIdx,setIdx)}
+                        hitSlop={{top:6,bottom:6,left:6,right:6}}
+                      >
+                        <Text style={s.removeTxt}>{ex.sets.length>1?'−':'✕'}</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
-                  {/* Fila anterior */}
+                  {/* Anterior — solo si hay dato y el set no está hecho */}
                   {hasPrev&&!isDone&&(
                     <Text style={s.prevLabel}>
-                      ← Anterior: {prevWeight||'?'}{weightUnit} × {prevReps||'?'} reps
+                      Ant: {prevWeight||'?'}{weightUnit} × {prevReps||'?'}
                     </Text>
                   )}
                 </View>
@@ -864,6 +874,7 @@ export default function WorkoutScreen({ navigation }) {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -881,15 +892,15 @@ function createStyles(colors) {
     reaction: { position:'absolute', top:120, left:14, right:14, flexDirection:'row', alignItems:'center', gap:10, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:12, borderWidth:1, borderColor:colors.purple, zIndex:99, shadowColor:'#7c3aed', shadowOpacity:0.4, shadowRadius:8, elevation:8 },
     reactionText: { color:colors.white, fontSize:13, fontStyle:'italic', lineHeight:18 },
 
-    // Modo header
-    modeHeader: { paddingHorizontal:14, paddingTop:12, paddingBottom:8, gap:8 },
-    modeTabs: { flexDirection:'row', backgroundColor:colors.bgCard, borderRadius:RADIUS.full, padding:3 },
-    modeTab: { flex:1, paddingVertical:8, borderRadius:RADIUS.full, alignItems:'center' },
+    // Modo header — fila única
+    modeHeader: { paddingHorizontal:14, paddingTop:10, paddingBottom:8, flexDirection:'row', alignItems:'center', gap:8 },
+    modeTabs: { flex:1, flexDirection:'row', backgroundColor:colors.bgCard, borderRadius:RADIUS.full, padding:3 },
+    modeTab: { flex:1, paddingVertical:7, borderRadius:RADIUS.full, alignItems:'center' },
     modeTabActive: { backgroundColor:colors.purple },
     modeTabText: { fontSize:13, color:colors.gray, fontWeight:'600' },
     modeTabTextActive: { color:'#fff' },
-    recommendBtn: { backgroundColor:colors.purpleDim, borderRadius:RADIUS.full, paddingVertical:10, paddingHorizontal:16, alignItems:'center', borderWidth:1, borderColor:colors.purple },
-    recommendBtnText: { color:colors.purpleLight, fontWeight:'700', fontSize:13 },
+    recommendBtn: { width:40, height:40, borderRadius:20, backgroundColor:colors.purpleDim, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple },
+    recommendBtnIcon: { fontSize:20 },
 
     // Barra activa
     activeBar: { paddingHorizontal:16, paddingVertical:7, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
@@ -897,17 +908,17 @@ function createStyles(colors) {
     autoSaveHint: { fontSize:11, color:colors.gray, marginLeft:8 },
 
     // Selector rutinas
-    dayScroll: { paddingHorizontal:14, paddingVertical:10, maxHeight:56 },
-    dayChip: { paddingHorizontal:14, paddingVertical:8, borderRadius:RADIUS.full, backgroundColor:colors.bgCard, marginRight:8, borderWidth:1, borderColor:colors.purpleDim },
+    dayScroll: { paddingHorizontal:14, paddingVertical:8, maxHeight:52 },
+    dayChip: { paddingHorizontal:14, paddingVertical:7, borderRadius:RADIUS.full, backgroundColor:colors.bgCard, marginRight:8, borderWidth:1, borderColor:colors.purpleDim },
     dayChipActive: { backgroundColor:colors.purple, borderColor:colors.purple },
     dayChipText: { fontSize:13, color:colors.gray, fontWeight:'500' },
     dayChipTextActive: { color:'#fff' },
-    addRoutineBtn: { width:36, height:36, borderRadius:18, backgroundColor:colors.purple, alignItems:'center', justifyContent:'center', marginRight:14 },
+    addRoutineBtn: { width:34, height:34, borderRadius:17, backgroundColor:colors.purple, alignItems:'center', justifyContent:'center', marginRight:14 },
     addRoutineTxt: { color:'#fff', fontSize:22, fontWeight:'300', lineHeight:28 },
-    longPressHint: { fontSize:10, color:colors.gray, textAlign:'center', marginBottom:4 },
+    longPressHint: { fontSize:10, color:colors.gray, textAlign:'center', marginBottom:2 },
 
     // Scroll
-    scroll: { padding:14, paddingBottom:80 },
+    scroll: { padding:12, paddingBottom:80 },
 
     // Empty state
     emptyState: { alignItems:'center', paddingTop:60, paddingHorizontal:24 },
@@ -917,47 +928,53 @@ function createStyles(colors) {
     emptyBtnText:{ color:'#fff', fontWeight:'700', fontSize:15 },
 
     // Completado
-    completedBanner: { backgroundColor:colors.purpleDim, borderRadius:RADIUS.md, padding:12, marginBottom:16, alignItems:'center', borderWidth:1, borderColor:colors.purple },
-    completedText:   { color:colors.purpleLight, fontWeight:'600' },
+    completedBanner: { backgroundColor:colors.purpleDim, borderRadius:RADIUS.md, padding:10, marginBottom:12, alignItems:'center', borderWidth:1, borderColor:colors.purple },
+    completedText:   { color:colors.purpleLight, fontWeight:'600', fontSize:14 },
 
     // Tarjeta ejercicio
-    exCard: { backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:16, marginBottom:14 },
-    exName: { fontSize:18, fontWeight:'800', color:colors.white, marginBottom:14, letterSpacing:0.2 },
+    exCard: { backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:14, marginBottom:12 },
+    exName: { fontSize:17, fontWeight:'800', color:colors.white, marginBottom:10, letterSpacing:0.1 },
 
-    // Block de set — layout VERTICAL
-    setBlock: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, padding:12, marginBottom:10, borderWidth:1, borderColor:colors.purpleDim },
-    setBlockDone: { borderColor:colors.purpleLight, opacity:0.75 },
-    setBlockLabel: { fontSize:12, fontWeight:'700', color:colors.gray, textTransform:'uppercase', letterSpacing:0.8, marginBottom:10 },
-    setBlockLabelDone: { color:colors.purpleLight },
+    // Cabecera columnas
+    setHeaderRow: { flexDirection:'row', alignItems:'center', paddingBottom:6, borderBottomWidth:1, borderBottomColor:colors.purpleDim, marginBottom:4 },
+    colHeader: { fontSize:10, fontWeight:'700', color:colors.gray, textTransform:'uppercase', letterSpacing:0.8, textAlign:'center' },
 
-    // Fila de inputs dentro del set
-    setInputRow: { flexDirection:'row', alignItems:'center', gap:8 },
-    inputGroup: { flex:1, alignItems:'center', gap:4 },
-    inputGroupLabel: { fontSize:10, fontWeight:'700', color:colors.gray, textTransform:'uppercase', letterSpacing:0.6 },
+    // Columnas fijas del set
+    setNumCol: { width:28, alignItems:'center' },
+    inputCol: { flex:1, paddingHorizontal:3 },
+    actionCols: { flexDirection:'row', gap:5, alignItems:'center' },
+
+    // Fila de set — UNA línea
+    setRow: { flexDirection:'row', alignItems:'center', paddingVertical:5, gap:0 },
+    setRowDone: { opacity:0.55 },
+    setNum: { fontSize:13, fontWeight:'700', color:colors.gray, textAlign:'center' },
+    setNumDone: { color:colors.purpleLight },
+
+    // Input dentro del set
     bigInput: {
-      width:'100%', minHeight:52, backgroundColor:colors.bg,
+      height:48, backgroundColor:colors.bgInput,
       borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim,
-      fontSize:20, fontWeight:'700', color:colors.white,
-      textAlign:'center', paddingVertical:8,
+      fontSize:18, fontWeight:'700', color:colors.white,
+      textAlign:'center',
     },
-    bigInputDone: { opacity:0.4 },
+    bigInputDone: { opacity:0.4, borderColor:'transparent' },
 
     // Botones set
-    doneBtn: { width:44, height:52, borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center' },
+    doneBtn: { width:42, height:48, borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center' },
     doneBtnActive: { backgroundColor:colors.purpleLight, borderColor:colors.purpleLight },
     doneBtnTxt: { fontSize:18, color:colors.gray, fontWeight:'700' },
     doneBtnTxtActive: { color:'#fff' },
-    removeBtn: { width:44, height:52, borderRadius:RADIUS.sm, backgroundColor:colors.bgCard, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center' },
-    removeTxt: { fontSize:20, color:colors.gray, fontWeight:'700', lineHeight:24 },
+    removeBtn: { width:36, height:48, borderRadius:RADIUS.sm, alignItems:'center', justifyContent:'center' },
+    removeTxt: { fontSize:20, color:colors.purpleDim, fontWeight:'700', lineHeight:24 },
 
-    // Anterior
-    prevLabel: { fontSize:12, color:colors.purpleLight, marginTop:8, fontStyle:'italic' },
+    // Anterior — inline, compacto
+    prevLabel: { fontSize:11, color:colors.purpleLight, marginTop:0, marginBottom:4, marginLeft:28, fontStyle:'italic', opacity:0.8 },
 
     // Footer ejercicio
-    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:6 },
-    addSetBtn: {},
-    addSetTxt: { color:colors.purpleLight, fontSize:14, fontWeight:'600' },
-    removeExBtn: {},
+    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:8, paddingTop:8, borderTopWidth:1, borderTopColor:colors.purpleDim },
+    addSetBtn: { paddingVertical:4, paddingHorizontal:8 },
+    addSetTxt: { color:colors.purpleLight, fontSize:14, fontWeight:'700' },
+    removeExBtn: { paddingVertical:4, paddingHorizontal:8 },
     removeExTxt: { color:colors.gray, fontSize:12, textDecorationLine:'underline' },
 
     // Acciones principales
