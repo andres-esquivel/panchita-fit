@@ -6,11 +6,11 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { IconEditar, IconEliminar } from '../components/icons';
+import { IconArrow, IconCheck, IconEditar, IconEliminar, IconMessage, IconTarget, IconWarning } from '../components/icons';
 import {
   getWeeklyFrequency, getExerciseProgress, getAllTrackedExercises,
   getBestProgressExercise, getBodyWeights, saveBodyWeight, deleteBodyWeight,
-  getWeekActivity, getLogs, getWeeklyReviews,
+  getWeekActivity, getLogs, getWeeklyReviews, getWeightUnit, saveWeightUnit,
 } from '../storage';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -227,6 +227,7 @@ export default function ProgressScreen() {
 
   const [weightInput, setWeightInput]     = useState('');
   const [weightSaved, setWeightSaved]     = useState(false);
+  const [bodyWeightUnit, setBodyWeightUnit] = useState('kg');
 
   // Modal editar
   const [editModal, setEditModal]         = useState(false);
@@ -263,12 +264,13 @@ export default function ProgressScreen() {
 
   async function loadAll() {
     const todayStr = today.toISOString().split('T')[0];
-    const [freq, allEx, best, weights, activity, logs, reviews] = await Promise.all([
+    const [freq, allEx, best, weights, activity, logs, reviews, unit] = await Promise.all([
       getWeeklyFrequency(8), getAllTrackedExercises(), getBestProgressExercise(),
-      getBodyWeights(), getWeekActivity(), getLogs(), getWeeklyReviews(),
+      getBodyWeights(), getWeekActivity(), getLogs(), getWeeklyReviews(), getWeightUnit(),
     ]);
     setWeekFreq(freq); setExercises(allEx); setBestProgress(best);
     setBodyWeights(weights); setWeeklyReviews(reviews);
+    setBodyWeightUnit(unit);
 
     let s = 0;
     for (const day of [...activity].reverse()) { if (day.trained) s++; else break; }
@@ -295,18 +297,24 @@ export default function ProgressScreen() {
 
   async function handleSaveWeight() {
     const val = parseFloat(weightInput.replace(',', '.'));
-    if (isNaN(val) || val <= 0 || val > 300) return;
-    await saveBodyWeight({ date: today.toISOString().split('T')[0], weight: val });
+    const maxVal = bodyWeightUnit === 'lb' ? 700 : 300;
+    if (isNaN(val) || val <= 0 || val > maxVal) return;
+    await saveBodyWeight({ date: today.toISOString().split('T')[0], weight: val, unit: bodyWeightUnit });
     setWeightSaved(true);
     setTimeout(() => setWeightSaved(false), 2000);
     await refreshWeights();
   }
 
+  async function handleBodyUnitChange(unit) {
+    setBodyWeightUnit(unit);
+    await saveWeightUnit(unit);
+  }
+
   function openEdit(entry) { setEditEntry(entry); setEditWeight(String(entry.weight)); setEditModal(true); }
   async function saveEdit() {
     const val = parseFloat(editWeight.replace(',', '.'));
-    if (isNaN(val) || val <= 0 || val > 300) return;
-    await saveBodyWeight({ date: editEntry.date, weight: val });
+    if (isNaN(val) || val <= 0 || val > (bodyWeightUnit === 'lb' ? 700 : 300)) return;
+    await saveBodyWeight({ date: editEntry.date, weight: val, unit: editEntry.unit || bodyWeightUnit });
     setEditModal(false); await refreshWeights();
   }
 
@@ -331,8 +339,8 @@ export default function ProgressScreen() {
     if (isDateFuture(iso)) { setAddError('No podés agregar una fecha futura'); return; }
     if (isDateDuplicate(iso)) { setAddError(`Ya existe un registro para el ${formatDateDisplay(iso)}`); return; }
     const val = parseFloat(addWeight.replace(',', '.'));
-    if (isNaN(val) || val <= 0 || val > 300) { setAddError('Peso inválido'); return; }
-    await saveBodyWeight({ date: iso, weight: val });
+    if (isNaN(val) || val <= 0 || val > (bodyWeightUnit === 'lb' ? 700 : 300)) { setAddError('Peso inválido'); return; }
+    await saveBodyWeight({ date: iso, weight: val, unit: bodyWeightUnit });
     setAddModal(false); await refreshWeights();
   }
 
@@ -374,7 +382,7 @@ export default function ProgressScreen() {
             <Text style={s.bestExName}>{bestProgress.name}</Text>
             <View style={s.bestRow}>
               <View style={s.bestItem}><Text style={s.bestVal}>{bestProgress.lastWeek} kg</Text><Text style={s.bestItemLabel}>semana ant.</Text></View>
-              <Text style={s.bestArrow}>→</Text>
+              <IconArrow size={18} color={colors.gray} />
               <View style={s.bestItem}><Text style={[s.bestVal, { color: colors.lime }]}>{bestProgress.thisWeek} kg</Text><Text style={s.bestItemLabel}>esta semana</Text></View>
               <View style={[s.deltaBadge, { backgroundColor: colors.lime + '33' }]}>
                 <Text style={[s.deltaTxt, { color: colors.lime }]}>+{bestProgress.delta} kg</Text>
@@ -418,21 +426,37 @@ export default function ProgressScreen() {
         <View style={s.chartCard}>
           <Text style={s.sectionTitle}>Peso corporal</Text>
           <Text style={s.sectionSub}>Registrá tu peso de hoy</Text>
+          <View style={s.bodyUnitRow}>
+            <Text style={s.bodyUnitLabel}>Unidad para peso corporal</Text>
+            <View style={s.unitToggle}>
+              {['kg', 'lb'].map(unit => (
+                <TouchableOpacity
+                  key={unit}
+                  style={[s.unitBtn, bodyWeightUnit === unit && s.unitBtnActive]}
+                  onPress={() => handleBodyUnitChange(unit)}
+                >
+                  <Text style={[s.unitBtnText, bodyWeightUnit === unit && s.unitBtnTextActive]}>{unit}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
           <View style={s.weightInputRow}>
             <TextInput style={s.weightInput} value={weightInput} onChangeText={setWeightInput}
               placeholder="0.0" placeholderTextColor={colors.gray} keyboardType="decimal-pad" />
-            <Text style={s.weightUnit}>kg</Text>
+            <Text style={s.weightUnit}>{bodyWeightUnit}</Text>
             <TouchableOpacity style={[s.weightBtn, weightSaved && { backgroundColor: colors.lime }]} onPress={handleSaveWeight}>
-              <Text style={[s.weightBtnTxt, weightSaved && { color: '#0f0a1e' }]}>
-                {weightSaved ? '✓ Guardado' : 'Guardar hoy'}
-              </Text>
+              {weightSaved ? (
+                <View style={s.inlineIconRow}><IconCheck size={15} color="#0f0a1e" /><Text style={[s.weightBtnTxt, { color: '#0f0a1e' }]}>Guardado</Text></View>
+              ) : (
+                <Text style={s.weightBtnTxt}>Guardar hoy</Text>
+              )}
             </TouchableOpacity>
           </View>
 
           {weightChartData.length >= 2 ? (
             <View style={{ marginTop: 16 }}>
               <LineChart data={weightChartData} lineColor={colors.teal} dotColor={colors.bgCard} labelColor={colors.gray} height={140} />
-              <Text style={s.chartUnit}>últimos 14 registros (kg)</Text>
+              <Text style={s.chartUnit}>últimos 14 registros ({bodyWeightUnit})</Text>
             </View>
           ) : (
             <Text style={[s.emptyChartTxt, { marginTop: 12 }]}>
@@ -451,7 +475,7 @@ export default function ProgressScreen() {
                 <View key={entry.date} style={s.historyRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.historyDate}>{formatDateDisplay(entry.date)}</Text>
-                    <Text style={s.historyWeight}>{entry.weight} kg</Text>
+                    <Text style={s.historyWeight}>{entry.weight} {entry.unit || bodyWeightUnit}</Text>
                   </View>
                   <TouchableOpacity style={s.historyActionBtn} onPress={() => openEdit(entry)}>
                     <IconEditar size={18} color={colors.purpleLight} />
@@ -470,7 +494,7 @@ export default function ProgressScreen() {
           <View style={s.chartCard}>
             <TouchableOpacity style={s.reviewsHeader} onPress={() => setShowingReviews(v => !v)}>
               <Text style={s.sectionTitle}>Cierres semanales</Text>
-              <Text style={s.reviewsToggle}>{showingReviews ? '▲ Ocultar' : '▼ Ver historial'}</Text>
+              <Text style={s.reviewsToggle}>{showingReviews ? 'Ocultar' : 'Ver historial'}</Text>
             </TouchableOpacity>
             {showingReviews && weeklyReviews.map(review => (
               <View key={review.id} style={s.reviewCard}>
@@ -490,8 +514,8 @@ export default function ProgressScreen() {
                     {review.volumeDeltaPct !== 0 ? ` (${review.volumeDeltaPct > 0 ? '+' : ''}${review.volumeDeltaPct}%)` : ''}
                   </Text>
                 )}
-                {review.reflection && <Text style={s.reviewReflection}>💬 "{review.reflection}"</Text>}
-                {review.nextGoal   && <Text style={s.reviewGoal}>🎯 {review.nextGoal}</Text>}
+                {review.reflection && <View style={s.reviewIconRow}><IconMessage size={16} color={colors.purpleLight} /><Text style={s.reviewReflection}>"{review.reflection}"</Text></View>}
+                {review.nextGoal   && <View style={s.reviewIconRow}><IconTarget size={16} color={colors.lime} /><Text style={s.reviewGoal}>{review.nextGoal}</Text></View>}
                 {review.panchitaResponse && <Text style={s.reviewPanchita}>Panchita: "{review.panchitaResponse}"</Text>}
               </View>
             ))}
@@ -510,7 +534,7 @@ export default function ProgressScreen() {
             <View style={s.modalInputRow}>
               <TextInput style={s.modalInput} value={editWeight} onChangeText={setEditWeight}
                 keyboardType="decimal-pad" placeholder="0.0" placeholderTextColor={colors.gray} autoFocus />
-              <Text style={s.modalUnit}>kg</Text>
+              <Text style={s.modalUnit}>{editEntry?.unit || bodyWeightUnit}</Text>
             </View>
             <View style={s.modalBtns}>
               <TouchableOpacity style={s.modalCancelBtn} onPress={() => setEditModal(false)}>
@@ -533,9 +557,13 @@ export default function ProgressScreen() {
             {/* Vista previa de fecha */}
             <Text style={s.datePreview}>
               {formatDateDisplay(selectedIso())}
-              {isDateFuture(selectedIso()) ? '  ⚠ fecha futura' : ''}
-              {isDateDuplicate(selectedIso()) ? '  ⚠ ya registrada' : ''}
             </Text>
+            {isDateFuture(selectedIso()) && (
+              <View style={s.dateWarningRow}><IconWarning size={14} color={colors.danger} /><Text style={s.dateWarningTxt}>fecha futura</Text></View>
+            )}
+            {isDateDuplicate(selectedIso()) && (
+              <View style={s.dateWarningRow}><IconWarning size={14} color={colors.danger} /><Text style={s.dateWarningTxt}>ya registrada</Text></View>
+            )}
 
             {/* Ruedas de fecha */}
             <View style={s.wheelRow}>
@@ -558,7 +586,7 @@ export default function ProgressScreen() {
             <View style={s.modalInputRow}>
               <TextInput style={s.modalInput} value={addWeight} onChangeText={v => { setAddWeight(v); setAddError(''); }}
                 keyboardType="decimal-pad" placeholder="0.0" placeholderTextColor={colors.gray} />
-              <Text style={s.modalUnit}>kg</Text>
+              <Text style={s.modalUnit}>{bodyWeightUnit}</Text>
             </View>
             {addError ? <Text style={s.modalError}>{addError}</Text> : null}
 
@@ -605,11 +633,19 @@ function createStyles(colors) {
     exChipActive:     { backgroundColor: colors.purple, borderColor: colors.purple },
     exChipTxt:        { fontSize: 12, color: colors.gray },
     exChipTxtActive:  { color: '#fff', fontWeight: '600' },
+    bodyUnitRow:      { flexDirection:'row', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:12 },
+    bodyUnitLabel:    { flex:1, fontSize:12, color:colors.grayLight, fontWeight:'600' },
+    unitToggle:       { flexDirection:'row', backgroundColor:colors.bgInput, borderRadius:RADIUS.full, padding:3, borderWidth:1, borderColor:colors.purpleDim },
+    unitBtn:          { paddingHorizontal:13, paddingVertical:6, borderRadius:RADIUS.full },
+    unitBtnActive:    { backgroundColor:colors.purple },
+    unitBtnText:      { fontSize:13, fontWeight:'800', color:colors.gray },
+    unitBtnTextActive:{ color:colors.accentText||'#fff' },
     weightInputRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
     weightInput:      { backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12, fontSize: 20, color: colors.white, fontWeight: '700', width: 90, textAlign: 'center', borderWidth: 1, borderColor: colors.purpleDim },
     weightUnit:       { fontSize: 15, color: colors.gray, fontWeight: '600' },
     weightBtn:        { flex: 1, backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center' },
     weightBtnTxt:     { color: '#fff', fontWeight: '700', fontSize: 14 },
+    inlineIconRow:    { flexDirection:'row', alignItems:'center', gap:5 },
     addPastBtn:       { marginTop: 14, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 14, borderRadius: RADIUS.full, borderWidth: 1, borderColor: colors.purpleDim },
     addPastBtnTxt:    { fontSize: 13, color: colors.purpleLight, fontWeight: '600' },
     historyRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.purpleDim + '50' },
@@ -625,8 +661,9 @@ function createStyles(colors) {
     reviewDaysBadge:  { borderRadius: RADIUS.full, paddingHorizontal: 10, paddingVertical: 4 },
     reviewDaysNum:    { fontSize: 12, fontWeight: '800' },
     reviewVolume:     { fontSize: 12, color: colors.gray, marginBottom: 6 },
-    reviewReflection: { fontSize: 13, color: colors.white, fontStyle: 'italic', marginBottom: 6, lineHeight: 18 },
-    reviewGoal:       { fontSize: 13, color: colors.purpleLight, marginBottom: 4 },
+    reviewIconRow:    { flexDirection:'row', alignItems:'flex-start', gap:7, marginBottom:6 },
+    reviewReflection: { flex:1, fontSize: 13, color: colors.white, fontStyle: 'italic', lineHeight: 18 },
+    reviewGoal:       { flex:1, fontSize: 13, color: colors.purpleLight, marginBottom: 4 },
     reviewPanchita:   { fontSize: 12, color: colors.gray, fontStyle: 'italic' },
     // Modales
     modalOverlay:     { flex: 1, backgroundColor: '#00000099', justifyContent: 'center', alignItems: 'center', padding: 20 },
@@ -644,6 +681,8 @@ function createStyles(colors) {
     modalSaveTxt:     { color: '#fff', fontWeight: '700' },
     // Wheel picker
     datePreview:      { fontSize: 17, fontWeight: '700', color: colors.white, textAlign: 'center', marginBottom: 16 },
+    dateWarningRow:   { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:6, marginTop:-8, marginBottom:10 },
+    dateWarningTxt:   { fontSize:12, color:colors.danger, fontWeight:'700' },
     wheelRow:         { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 4 },
     wheelLabel:       { fontSize: 11, color: colors.gray, marginBottom: 4, textAlign: 'center' },
   });

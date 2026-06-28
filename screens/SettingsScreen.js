@@ -1,14 +1,14 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, Alert, Modal,
+  TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { IconBolt, IconFire, IconLeaf, IconMoon, IconScale, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle } from '../components/icons';
-import { getWeightUnit, saveWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar } from '../components/icons';
+import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 // Días de la semana en orden visual L-D
 const WEEK_DAYS = ['L','M','X','J','V','S','D'];
@@ -46,8 +46,10 @@ export default function SettingsScreen() {
   const { palette, setTheme, colors } = useTheme();
   const s = useMemo(() => createStyles(colors), [colors]);
 
-  const [weightUnit, setWeightUnit] = useState('kg');
   const [restTimerSeconds, setRestTimerSeconds] = useState(90);
+  const [profileName, setProfileName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
 
   // T3 — programación semanal
   const [weekSchedule, setWeekSchedule] = useState({});
@@ -56,7 +58,7 @@ export default function SettingsScreen() {
   const [pickerDay, setPickerDay]         = useState(null);
 
   useEffect(() => {
-    getWeightUnit().then(setWeightUnit);
+    getUser().then(u => setProfileName(u?.name || '')).catch(() => {});
     getRestTimerSeconds().then(setRestTimerSeconds);
     loadWeekData();
   }, []);
@@ -82,14 +84,23 @@ export default function SettingsScreen() {
     await saveWeekSchedule(updated);
   }
 
-  async function handleWeightUnitChange(unit) {
-    setWeightUnit(unit);
-    await saveWeightUnit(unit);
-  }
-
   async function handleRestTimerChange(seconds) {
     setRestTimerSeconds(seconds);
     await saveRestTimerSeconds(seconds);
+  }
+
+  async function handleSaveName() {
+    const clean = profileName.trim();
+    if (!clean) return;
+    setSavingName(true);
+    setNameSaved(false);
+    try {
+      await saveUser({ name: clean });
+      setNameSaved(true);
+      setTimeout(() => setNameSaved(false), 2200);
+    } finally {
+      setSavingName(false);
+    }
   }
 
   function handleLogout() {
@@ -106,6 +117,39 @@ export default function SettingsScreen() {
         <View style={s.header}>
           <Text style={s.headerTitle}>Ajustes</Text>
           <Text style={s.headerSub}>Personalizá tu experiencia</Text>
+        </View>
+
+        {/* ── PERFIL ── */}
+        <Text style={s.sectionTitle}>PERFIL</Text>
+        <View style={s.card}>
+          <View style={s.profileRow}>
+            <View style={s.iconBg}>
+              <IconEditar size={20} color={colors.purpleLight} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Nombre visible</Text>
+              <Text style={s.rowSub}>Así te saluda Panchita. Sí, te va a juzgar igual.</Text>
+            </View>
+          </View>
+          <View style={s.nameEditRow}>
+            <TextInput
+              style={s.nameInput}
+              value={profileName}
+              onChangeText={v => { setProfileName(v); setNameSaved(false); }}
+              placeholder="Tu nombre"
+              placeholderTextColor={colors.gray}
+              returnKeyType="done"
+              onSubmitEditing={handleSaveName}
+            />
+            <TouchableOpacity
+              style={[s.nameSaveBtn, (!profileName.trim() || savingName) && { opacity: 0.65 }]}
+              onPress={handleSaveName}
+              disabled={!profileName.trim() || savingName}
+              activeOpacity={0.75}
+            >
+              {savingName ? <ActivityIndicator color={colors.accentText || '#fff'} size="small" /> : <Text style={s.nameSaveTxt}>{nameSaved ? 'Guardado' : 'Guardar'}</Text>}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── APARIENCIA ── */}
@@ -159,31 +203,6 @@ export default function SettingsScreen() {
         <Text style={s.sectionTitle}>ENTRENAMIENTO</Text>
         <View style={s.card}>
           <View style={s.row}>
-            <View style={s.rowLeft}>
-              <View style={s.iconBg}>
-                <IconScale size={20} color={colors.purpleLight} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.rowLabel}>Unidad de peso</Text>
-                <Text style={s.rowSub}>Valor por defecto en ejercicios nuevos</Text>
-              </View>
-            </View>
-            <View style={s.unitToggle}>
-              <TouchableOpacity
-                style={[s.unitBtn, weightUnit === 'kg' && s.unitBtnActive]}
-                onPress={() => handleWeightUnitChange('kg')}
-              >
-                <Text style={[s.unitBtnText, weightUnit === 'kg' && s.unitBtnTextActive]}>kg</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.unitBtn, weightUnit === 'lb' && s.unitBtnActive]}
-                onPress={() => handleWeightUnitChange('lb')}
-              >
-                <Text style={[s.unitBtnText, weightUnit === 'lb' && s.unitBtnTextActive]}>lb</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={[s.row, s.rowBorder]}>
             <View style={s.rowLeft}>
               <View style={s.iconBg}>
                 <IconTimer size={20} color={colors.purpleLight} />
@@ -389,16 +408,18 @@ function createStyles(colors) {
     rowSub:   { fontSize: 11, color: colors.gray, marginTop: 2 },
     rowBorder:{ borderTopWidth: 1, borderTopColor: colors.purpleDim },
 
-    // ── Toggle kg/lb ──
-    unitToggle: {
-      flexDirection: 'row', backgroundColor: colors.bgInput,
-      borderRadius: RADIUS.full, padding: 3,
-      borderWidth: 1, borderColor: colors.purpleDim,
+    profileRow: { flexDirection:'row', alignItems:'center', gap:12, paddingHorizontal:16, paddingTop:14, paddingBottom:10 },
+    nameEditRow: { flexDirection:'row', alignItems:'center', gap:10, paddingHorizontal:16, paddingBottom:14 },
+    nameInput: {
+      flex:1, minHeight:44, borderRadius:RADIUS.md, backgroundColor:colors.bgInput,
+      borderWidth:1, borderColor:colors.purpleDim, color:colors.white,
+      paddingHorizontal:12, fontSize:15, fontWeight:'600',
     },
-    unitBtn:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full },
-    unitBtnActive:   { backgroundColor: colors.purple },
-    unitBtnText:     { fontSize: 14, fontWeight: '700', color: colors.gray },
-    unitBtnTextActive: { color: colors.accentText },
+    nameSaveBtn: {
+      minHeight:44, paddingHorizontal:16, borderRadius:RADIUS.md,
+      backgroundColor:colors.purple, alignItems:'center', justifyContent:'center',
+    },
+    nameSaveTxt: { color:colors.accentText||'#fff', fontWeight:'800', fontSize:13 },
     restTimerGrid: { flexDirection:'row', flexWrap:'wrap', gap:8, paddingHorizontal:16, paddingBottom:14 },
     restTimerBtn: { minWidth:58, paddingVertical:9, paddingHorizontal:12, borderRadius:RADIUS.full, backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center' },
     restTimerBtnActive: { backgroundColor:colors.purple, borderColor:colors.purple },

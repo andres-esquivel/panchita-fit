@@ -16,7 +16,11 @@ import {
   getRecentMuscleActivity, getWeightUnit,
   shareRoutine, importSharedRoutine,
 } from '../storage';
-import { IconShare } from '../components/icons';
+import {
+  IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
+  IconCheck, IconClose, IconCopy, IconDocument, IconDownload, IconEditar, IconEliminar, IconHistory,
+  IconMenuDots, IconRepeat, IconShare, IconStar, IconWarning,
+} from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
@@ -241,6 +245,8 @@ export default function WorkoutScreen({ navigation, route }) {
   const [editNameRoutine, setEditNameRoutine] = useState(null);
   const [editNameValue, setEditNameValue]     = useState('');
   const [editNameSaving, setEditNameSaving]   = useState(false);
+  const [deletingRoutineId, setDeletingRoutineId] = useState(null);
+  const [deletingRoutineName, setDeletingRoutineName] = useState('');
 
   // ── T3: routine selection modal ───────────────────────
   const [showRoutineModal, setShowRoutineModal]       = useState(false);
@@ -835,12 +841,25 @@ export default function WorkoutScreen({ navigation, route }) {
   }
 
   async function doDeleteRoutine(routine) {
-    await deleteCustomRoutine(routine.id);
-    const updated = await getCustomRoutines();
+    if (!routine?.id) return;
+    const previous = customRoutines;
+    const updated = previous.filter(r => r.id !== routine.id);
+    setDeletingRoutineId(routine.id);
+    setDeletingRoutineName(routine.name || routine.day || 'rutina');
     setCustomRoutines(updated);
+    setShowChipMenu(false);
     if (selectedWorkout?.id===routine.id) {
       setSelectedWorkout(null); setLog(null);
-      if (updated.length>0) await selectWorkout(updated[0]);
+      if (updated.length>0) selectWorkout(updated[0]).catch(()=>{});
+    }
+    try {
+      await deleteCustomRoutine(routine.id);
+    } catch(e) {
+      setCustomRoutines(previous);
+      showInfo('No se pudo eliminar', 'Restauré la rutina porque falló el guardado. El WiFi hizo cardio y se cansó.');
+    } finally {
+      setDeletingRoutineId(null);
+      setDeletingRoutineName('');
     }
   }
 
@@ -1008,7 +1027,10 @@ export default function WorkoutScreen({ navigation, route }) {
             <TextInput style={[s.createInput,{marginBottom:10}]} placeholder="Nombre de la rutina" placeholderTextColor={colors.gray} value={newRoutineName} onChangeText={v=>{setNewRoutineName(v);setCreateError('');}} />
             {/* Toggle recurrente */}
             <TouchableOpacity style={[s.recurringRow,newRoutineRecurring&&s.recurringRowOn]} onPress={()=>setNewRoutineRecurring(v=>!v)} activeOpacity={0.8}>
-              <Text style={s.recurringLabel}>{newRoutineRecurring?'📅':'🔁'} Repetir cada semana</Text>
+              <View style={s.inlineIconRow}>
+                {newRoutineRecurring ? <IconCalendar size={17} color={colors.purpleLight} /> : <IconRepeat size={17} color={colors.purpleLight} />}
+                <Text style={s.recurringLabel}>Repetir cada semana</Text>
+              </View>
               <View style={[s.recurringToggle,newRoutineRecurring&&s.recurringToggleOn]}>
                 <Text style={[s.recurringToggleTxt,newRoutineRecurring&&{color:'#fff'}]}>{newRoutineRecurring?'Sí':'No'}</Text>
               </View>
@@ -1020,7 +1042,7 @@ export default function WorkoutScreen({ navigation, route }) {
                   <TextInput style={[s.createInput,{flex:1}]} placeholder={`Ejercicio ${i+1}`} placeholderTextColor={colors.gray} value={ex} onChangeText={v=>{ const a=[...newExercises]; a[i]=v; setNewExercises(a); setCreateError(''); }} returnKeyType="next" />
                   {newExercises.length>1&&(
                     <TouchableOpacity onPress={()=>setNewExercises(prev=>prev.filter((_,j)=>j!==i))} style={s.createRemoveBtn}>
-                      <Text style={s.createRemoveTxt}>✕</Text>
+                      <IconClose size={14} color={colors.grayLight} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1054,16 +1076,16 @@ export default function WorkoutScreen({ navigation, route }) {
                   {/* T5 — flechas para reordenar en edición */}
                   <View style={{flexDirection:'column',gap:2,marginRight:2}}>
                     <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,-1)} disabled={i===0}>
-                      <Text style={[s.exOrderTxt,{fontSize:14},i===0&&{opacity:0.22}]}>↑</Text>
+                      <IconArrowUp size={14} color={i===0 ? colors.gray : colors.purpleLight} />
                     </TouchableOpacity>
                     <TouchableOpacity style={[s.exOrderBtn,{width:26,height:22}]} onPress={()=>moveEditExercise(i,1)} disabled={i===editExercises.length-1}>
-                      <Text style={[s.exOrderTxt,{fontSize:14},i===editExercises.length-1&&{opacity:0.22}]}>↓</Text>
+                      <IconArrowDown size={14} color={i===editExercises.length-1 ? colors.gray : colors.purpleLight} />
                     </TouchableOpacity>
                   </View>
                   <TextInput style={[s.createInput,{flex:1}]} placeholder={`Ejercicio ${i+1}`} placeholderTextColor={colors.gray} value={ex} onChangeText={v=>{ const a=[...editExercises]; a[i]=v; setEditExercises(a); }} returnKeyType="next" />
                   {editExercises.length>1&&(
                     <TouchableOpacity onPress={()=>setEditExercises(prev=>prev.filter((_,j)=>j!==i))} style={s.createRemoveBtn}>
-                      <Text style={s.createRemoveTxt}>✕</Text>
+                      <IconClose size={14} color={colors.grayLight} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1093,7 +1115,9 @@ export default function WorkoutScreen({ navigation, route }) {
               <View style={s.recBadge}><Text style={s.recBadgeText}>{recommendation.label.toUpperCase()} HOY</Text></View>
               <Text style={[s.modalPhrase,{fontStyle:'italic'}]}>"{recommendation.phrase}"</Text>
               <View style={s.recExList}>{recommendation.exercises.map((ex,i)=><Text key={i} style={s.recExItem}>· {ex}</Text>)}</View>
-              <TouchableOpacity style={s.modalBtn} onPress={useRecommendedRoutine}><Text style={s.modalBtnText}>Usar esta rutina →</Text></TouchableOpacity>
+              <TouchableOpacity style={s.modalBtn} onPress={useRecommendedRoutine}>
+                <View style={s.modalBtnRow}><Text style={s.modalBtnText}>Usar esta rutina</Text><IconArrow size={16} color={colors.accentText||'#fff'} /></View>
+              </TouchableOpacity>
               <TouchableOpacity onPress={()=>setShowRecommend(false)} style={{marginTop:8}}><Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>No gracias</Text></TouchableOpacity>
             </>):null}
           </View>
@@ -1113,7 +1137,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 <Text style={s.shareSubtitle}>{shareRoutineTarget?.name||shareRoutineTarget?.day}</Text>
                 <TouchableOpacity style={s.shareCodeBox} onPress={copyShareCode} activeOpacity={0.7}>
                   <Text style={s.shareCodeText}>{shareCode}</Text>
-                  <Text style={s.shareCodeHint}>{codeCopied?'✓ Compartido!':'Tap para compartir'}</Text>
+                  <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Tap para compartir'}</Text>
                 </TouchableOpacity>
                 {shareWarning?(
                   <Text style={s.shareWarningText}>{shareWarning}</Text>
@@ -1122,7 +1146,10 @@ export default function WorkoutScreen({ navigation, route }) {
                 )}
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
                 <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
-                  <Text style={s.modalBtnText}>{codeCopied?'✓ Compartido!':'📤 Compartir código'}</Text>
+                  <View style={s.modalBtnRow}>
+                    {codeCopied ? <IconCheck size={16} color={colors.accentText||'#fff'} /> : <IconShare size={16} color={colors.accentText||'#fff'} />}
+                    <Text style={s.modalBtnText}>{codeCopied?'Compartido':'Compartir código'}</Text>
+                  </View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>setShowShareModal(false)} style={{marginTop:10}}>
                   <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
@@ -1173,7 +1200,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 </TouchableOpacity>
               ):(
                 <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purple}]} onPress={confirmImport}>
-                  <Text style={[s.createBtnTxt,{color:'#fff'}]}>Importar ✓</Text>
+                  <View style={s.inlineIconRow}><Text style={[s.createBtnTxt,{color:'#fff'}]}>Importar</Text><IconCheck size={15} color="#fff" /></View>
                 </TouchableOpacity>
               )}
             </View>
@@ -1194,16 +1221,16 @@ export default function WorkoutScreen({ navigation, route }) {
             <View style={s.bottomSheetHandle}/>
             <Text style={s.bottomSheetTitle} numberOfLines={1}>{chipMenuRoutine?.name||chipMenuRoutine?.day}</Text>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditNameModal(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>✏️  Editar nombre</Text>
+              <View style={s.bsOptionRow}><IconEditar size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Editar nombre</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditModal(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>📝  Editar ejercicios</Text>
+              <View style={s.bsOptionRow}><IconDocument size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Editar ejercicios</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); duplicateRoutine(chipMenuRoutine); }}>
-              <Text style={s.bsOptionTxt}>📋  Duplicar</Text>
+              <View style={s.bsOptionRow}><IconCopy size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Duplicar</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openShareRoutine(chipMenuRoutine),180); }}>
-              <Text style={s.bsOptionTxt}>🔗  Compartir</Text>
+              <View style={s.bsOptionRow}><IconShare size={19} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Compartir</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{
               const r=chipMenuRoutine;
@@ -1211,7 +1238,7 @@ export default function WorkoutScreen({ navigation, route }) {
               // Pequeño delay para que el bottom sheet cierre antes de abrir el confirm modal
               setTimeout(()=>confirmDeleteRoutine(r), 200);
             }}>
-              <Text style={[s.bsOptionTxt,{color:colors.danger}]}>🗑️  Eliminar</Text>
+              <View style={s.bsOptionRow}><IconEliminar size={19} color={colors.danger} /><Text style={[s.bsOptionTxt,{color:colors.danger}]}>Eliminar</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim,marginTop:4}]} onPress={()=>setShowChipMenu(false)}>
               <Text style={[s.bsOptionTxt,{color:colors.gray}]}>Cancelar</Text>
@@ -1258,10 +1285,10 @@ export default function WorkoutScreen({ navigation, route }) {
                   "{getPanchitaRoutinePhrase(routineModalDaysSince)}"
                 </Text>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginBottom:10}]} onPress={startNewSession}>
-                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>⚡ Nueva sesión</Text>
+                  <View style={s.inlineIconRow}><IconBolt size={16} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>Nueva sesión</Text></View>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purpleDim,marginBottom:6}]} onPress={()=>setShowHistoryView(true)}>
-                  <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>📊 Ver historial</Text>
+                  <View style={s.inlineIconRow}><IconHistory size={16} color={colors.grayLight} /><Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Ver historial</Text></View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>setShowRoutineModal(false)} style={{alignItems:'center',paddingVertical:10}}>
                   <Text style={{color:colors.gray,fontSize:13}}>Cancelar</Text>
@@ -1271,7 +1298,7 @@ export default function WorkoutScreen({ navigation, route }) {
             {showHistoryView&&!historyDetailLog&&(
               <>
                 <TouchableOpacity onPress={()=>setShowHistoryView(false)} style={{marginBottom:10}}>
-                  <Text style={{color:colors.purple,fontSize:14}}>← Volver</Text>
+                  <View style={s.backLinkRow}><IconBack size={15} color={colors.purple} /><Text style={{color:colors.purple,fontSize:14}}>Volver</Text></View>
                 </TouchableOpacity>
                 <Text style={[s.modalTitle,{marginBottom:12,textAlign:'left'}]}>Historial</Text>
                 {historyLogs.length===0?(
@@ -1288,7 +1315,7 @@ export default function WorkoutScreen({ navigation, route }) {
                             {(hl.exercises||[]).length} ejercicios · {(hl.exercises||[]).reduce((n,ex)=>n+(ex.sets||[]).filter(st=>st.done).length,0)} sets completados
                           </Text>
                         </View>
-                        <Text style={{color:colors.purple,fontSize:18,paddingLeft:8}}>›</Text>
+                        <IconArrow size={18} color={colors.purple} />
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
@@ -1301,7 +1328,7 @@ export default function WorkoutScreen({ navigation, route }) {
             {historyDetailLog&&(
               <>
                 <TouchableOpacity onPress={()=>setHistoryDetailLog(null)} style={{marginBottom:10}}>
-                  <Text style={{color:colors.purple,fontSize:14}}>← Volver al historial</Text>
+                  <View style={s.backLinkRow}><IconBack size={15} color={colors.purple} /><Text style={{color:colors.purple,fontSize:14}}>Volver al historial</Text></View>
                 </TouchableOpacity>
                 <Text style={[s.modalTitle,{marginBottom:4,textAlign:'left'}]}>{formatLogDate(historyDetailLog.date)}</Text>
                 <Text style={{color:colors.gray,fontSize:12,marginBottom:12}}>
@@ -1313,14 +1340,14 @@ export default function WorkoutScreen({ navigation, route }) {
                       <Text style={{color:colors.purpleLight,fontWeight:'700',marginBottom:4}}>{ex.name}</Text>
                       {(ex.sets||[]).map((st,si)=>(
                         <Text key={si} style={s.recExItem}>
-                          Set {si+1}: {st.reps||'—'} reps × {st.weight||'—'} {ex.unit||'kg'}{st.done?' ✓':''}
+                          Set {si+1}: {st.reps||'—'} reps × {st.weight||'—'} {ex.unit||'kg'}{st.done?' completado':''}
                         </Text>
                       ))}
                     </View>
                   ))}
                 </ScrollView>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginTop:12}]} onPress={startNewSession}>
-                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>⚡ Nueva sesión con esta rutina</Text>
+                  <View style={s.inlineIconRow}><IconBolt size={16} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>Nueva sesión con esta rutina</Text></View>
                 </TouchableOpacity>
               </>
             )}
@@ -1339,7 +1366,7 @@ export default function WorkoutScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-          <Text style={s.recommendBtnIcon}>✨</Text>
+          <IconStar size={20} color={colors.lime} />
         </TouchableOpacity>
       </View>
 
@@ -1347,17 +1374,24 @@ export default function WorkoutScreen({ navigation, route }) {
       <View style={s.activeBar}>
         {selectedWorkout&&log ? (
           <Text style={s.activeName} numberOfLines={1} ellipsizeMode="tail">
-            {selectedWorkout.isRecurring?'📅 ':''}{selectedWorkout.name||selectedWorkout.day}
+            {selectedWorkout.name||selectedWorkout.day}
           </Text>
         ) : (
           <Text style={s.activeName} numberOfLines={1}>{syncing ? 'Cargando...' : 'Seleccioná una rutina'}</Text>
         )}
         {syncing&&<Text style={s.syncHint}>↻ Sincronizando</Text>}
-        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>📴 Local</Text>}
+        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>Local</Text>}
         {!syncing&&!usingLocalData&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
-        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓ Guardado</Text>}
-        {!syncing&&autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:'#ef4444'}]}>⚠ Error</Text>}
+        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<View style={s.statusPill}><IconCheck size={12} color={colors.lime} /><Text style={s.autoSaveHint}>Guardado</Text></View>}
+        {!syncing&&autoSaveState==='error'&&<View style={s.statusPill}><IconWarning size={12} color="#ef4444" /><Text style={[s.autoSaveHint,{color:'#ef4444'}]}>Error</Text></View>}
       </View>
+
+      {deletingRoutineId && (
+        <View style={s.deletingBanner}>
+          <ActivityIndicator size="small" color={colors.purpleLight} />
+          <Text style={s.deletingText}>Eliminando {deletingRoutineName}...</Text>
+        </View>
+      )}
 
       {/* T1 — Lista vertical de rutinas */}
       {initialLoading ? (
@@ -1382,14 +1416,14 @@ export default function WorkoutScreen({ navigation, route }) {
                 <TouchableOpacity key={w.id} style={[s.routineRow, isSelected&&s.routineRowActive]} onPress={()=>openRoutineModal(w)} activeOpacity={0.75}>
                   <View style={{flex:1,gap:2}}>
                     <Text style={[s.routineRowName, isSelected&&s.routineRowNameActive]} numberOfLines={1}>
-                      {w.isRecurring?'📅 ':''}{w.name||w.day}
+                      {w.name||w.day}
                     </Text>
                     <Text style={s.routineRowMeta}>
                       {exCount} ejercicio{exCount!==1?'s':''}{lastUsed?` · ${formatLogDate(lastUsed)}`:''}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.routineRowMenu} activeOpacity={0.6}>
-                    <Text style={[s.routineRowMenuTxt,isSelected&&{color:'rgba(255,255,255,0.75)'}]}>⋯</Text>
+                    <IconMenuDots size={20} color={isSelected ? 'rgba(255,255,255,0.75)' : colors.gray} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               );
@@ -1399,7 +1433,7 @@ export default function WorkoutScreen({ navigation, route }) {
             )}
           </ScrollView>
           <TouchableOpacity style={s.importRowBtn} onPress={openImportModal} activeOpacity={0.7}>
-            <Text style={s.importRowBtnTxt}>⬇ Importar código de rutina</Text>
+            <View style={s.inlineIconRow}><IconDownload size={16} color={colors.purpleLight} /><Text style={s.importRowBtnTxt}>Importar código de rutina</Text></View>
           </TouchableOpacity>
         </View>
       )}
@@ -1433,7 +1467,7 @@ export default function WorkoutScreen({ navigation, route }) {
 
         {log&&completed&&(
           <View style={s.completedBanner}>
-            <Text style={s.completedText}>Sesión completada hoy ✓</Text>
+            <View style={s.inlineIconRow}><IconCheck size={15} color={colors.lime} /><Text style={s.completedText}>Sesión completada hoy</Text></View>
           </View>
         )}
 
@@ -1465,14 +1499,14 @@ export default function WorkoutScreen({ navigation, route }) {
                   </TouchableOpacity>
                 ))}
               </View>
-              {/* T5 — flechas ↑↓ para reordenar */}
+              {/* T5 — flechas para reordenar */}
               <TouchableOpacity
                 style={s.exOrderBtn}
                 onPress={()=>moveExercise(exIdx,-1)}
                 activeOpacity={0.6}
                 disabled={exIdx===0}
               >
-                <Text style={[s.exOrderTxt,exIdx===0&&{opacity:0.22}]}>↑</Text>
+                <IconArrowUp size={15} color={exIdx===0 ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.exOrderBtn}
@@ -1480,7 +1514,7 @@ export default function WorkoutScreen({ navigation, route }) {
                 activeOpacity={0.6}
                 disabled={exIdx===(log?.exercises?.length-1)}
               >
-                <Text style={[s.exOrderTxt,exIdx===(log?.exercises?.length-1)&&{opacity:0.22}]}>↓</Text>
+                <IconArrowDown size={15} color={exIdx===(log?.exercises?.length-1) ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               {/* Botón ✕ — 44×44, usa ConfirmModal */}
               <TouchableOpacity
@@ -1494,7 +1528,7 @@ export default function WorkoutScreen({ navigation, route }) {
                   onConfirm: () => { hideConfirm(); removeExercise(exIdx); },
                 })}
               >
-                <Text style={s.exRemoveTxt}>✕</Text>
+                <IconClose size={16} color={colors.danger} />
               </TouchableOpacity>
             </View>
 
@@ -1517,9 +1551,7 @@ export default function WorkoutScreen({ navigation, route }) {
                       activeOpacity={0.7}
                     >
                       <View style={[s.setCircle, isDone&&s.setCircleDone]}>
-                        <Text style={[s.setCircleTxt, isDone&&s.setCircleTxtDone]}>
-                          {isDone ? '✓' : setIdx+1}
-                        </Text>
+                        {isDone ? <IconCheck size={14} color="#fff" /> : <Text style={s.setCircleTxt}>{setIdx+1}</Text>}
                       </View>
                       <Text style={[s.setLabel, isDone&&s.setLabelDone]}>
                         {isDone ? 'Completado' : `Set ${setIdx+1}`}
@@ -1532,9 +1564,11 @@ export default function WorkoutScreen({ navigation, route }) {
                       onPress={()=>removeSet(exIdx,setIdx)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>
-                        {isOnly ? 'limpiar' : '−'}
-                      </Text>
+                      {isOnly ? (
+                        <Text style={[s.setDelTxt, s.setDelTxtSoft]}>limpiar</Text>
+                      ) : (
+                        <IconClose size={14} color={colors.grayLight} />
+                      )}
                     </TouchableOpacity>
                   </View>
 
@@ -1692,12 +1726,18 @@ function createStyles(colors) {
     modeTabTextActive: { color:'#fff' },
     recommendBtn: { width:40, height:40, borderRadius:20, backgroundColor:colors.purpleDim, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple },
     recommendBtnIcon: { fontSize:20 },
+    inlineIconRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
+    modalBtnRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
+    backLinkRow: { flexDirection:'row', alignItems:'center', gap:6 },
 
     // Barra activa
     activeBar: { paddingHorizontal:14, paddingVertical:8, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, flexDirection:'row', alignItems:'center', justifyContent:'space-between', minHeight:40 },
     activeName: { fontSize:14, fontWeight:'700', color:colors.purpleLight, flex:1, marginRight:8 },
     syncHint: { fontSize:11, color:colors.purple, marginLeft:8 },
     autoSaveHint: { fontSize:11, color:colors.gray, marginLeft:8 },
+    statusPill: { flexDirection:'row', alignItems:'center', gap:3, marginLeft:8 },
+    deletingBanner: { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:14, paddingVertical:9, backgroundColor:colors.bgInput, borderBottomWidth:1, borderBottomColor:colors.purpleDim },
+    deletingText: { color:colors.grayLight, fontSize:12, fontWeight:'700', flex:1 },
 
     // Selector rutinas
     dayScroll: { paddingHorizontal:14, paddingVertical:8, maxHeight:52 },
@@ -1866,6 +1906,7 @@ function createStyles(colors) {
     bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
     bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
     bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
+    bsOptionRow: { flexDirection:'row', alignItems:'center', gap:11 },
     bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
 
     // ✕ ejercicio — esquina superior derecha, 44×44 sin hitSlop

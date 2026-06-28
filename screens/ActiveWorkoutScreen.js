@@ -10,7 +10,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getLogs, saveLog, getWeightUnit, getRestTimerSeconds, shareRoutine } from '../storage';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
-import { IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
+import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
@@ -659,10 +659,10 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                 ))}
               </View>
               <TouchableOpacity style={s.exOrderBtn} onPress={()=>moveExercise(exIdx,-1)} activeOpacity={0.6} disabled={exIdx===0}>
-                <Text style={[s.exOrderTxt,exIdx===0&&{opacity:0.22}]}>↑</Text>
+                <IconArrowUp size={15} color={exIdx===0 ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity style={s.exOrderBtn} onPress={()=>moveExercise(exIdx,1)} activeOpacity={0.6} disabled={exIdx===(log?.exercises?.length-1)}>
-                <Text style={[s.exOrderTxt,exIdx===(log?.exercises?.length-1)&&{opacity:0.22}]}>↓</Text>
+                <IconArrowDown size={15} color={exIdx===(log?.exercises?.length-1) ? colors.gray : colors.purpleLight} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.exRemoveBtn} activeOpacity={0.7}
