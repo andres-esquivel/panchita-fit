@@ -1046,10 +1046,11 @@ export default function WorkoutScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* ── T1: Modal menú chip ── */}
+      {/* ── T1: Modal menú chip — usa flex-end, NO position:absolute (compatibilidad web) ── */}
       <Modal visible={showChipMenu} transparent animationType="slide" onRequestClose={()=>setShowChipMenu(false)}>
-        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={()=>setShowChipMenu(false)}>
-          <View style={s.bottomSheet} onStartShouldSetResponder={()=>true}>
+        <View style={s.bsOverlay}>
+          <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={()=>setShowChipMenu(false)}/>
+          <View style={s.bottomSheet}>
             <View style={s.bottomSheetHandle}/>
             <Text style={s.bottomSheetTitle} numberOfLines={1}>{chipMenuRoutine?.name||chipMenuRoutine?.day}</Text>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditNameModal(chipMenuRoutine),180); }}>
@@ -1078,7 +1079,7 @@ export default function WorkoutScreen({ navigation }) {
               <Text style={[s.bsOptionTxt,{color:colors.gray}]}>Cancelar</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* ── T1: Modal editar nombre ── */}
@@ -1230,8 +1231,9 @@ export default function WorkoutScreen({ navigation }) {
                   {w.isRecurring?'📅 ':''}{w.day||w.name}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.chipMenuBtn} hitSlop={{top:8,bottom:8,left:4,right:8}}>
-                <Text style={[s.chipMenuTxt, selectedWorkout?.id===w.id&&{color:'rgba(255,255,255,0.75)'}]}>⋯</Text>
+              {/* ⋯ 44×44 sin hitSlop — hitSlop no funciona en web */}
+              <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.chipMenuBtn} activeOpacity={0.6}>
+                <Text style={[s.chipMenuTxt, selectedWorkout?.id===w.id&&{color:'rgba(255,255,255,0.85)'}]}>⋯</Text>
               </TouchableOpacity>
             </View>
           ))}
@@ -1294,7 +1296,7 @@ export default function WorkoutScreen({ navigation }) {
         {/* Tarjetas de ejercicios */}
         {(log?.exercises||[]).map((ex, exIdx)=>(
           <View key={exIdx} style={s.exCard}>
-            {/* Header: nombre + toggle de unidad */}
+            {/* Header: nombre + toggle unidad + ✕ (esquina sup. derecha, 44×44 real) */}
             <View style={s.exHeader}>
               <Text style={[s.exName,{flex:1,marginBottom:0}]}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
               <View style={s.exUnitToggle}>
@@ -1303,12 +1305,26 @@ export default function WorkoutScreen({ navigation }) {
                     key={u}
                     style={[s.exUnitBtn,(ex.unit||weightUnit)===u&&s.exUnitBtnActive]}
                     onPress={()=>setExUnit(exIdx,u)}
-                    hitSlop={{top:6,bottom:6,left:6,right:6}}
                   >
                     <Text style={[s.exUnitTxt,(ex.unit||weightUnit)===u&&s.exUnitTxtActive]}>{u}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+              {/* Botón ✕ — 44×44 explícito, sin hitSlop (no funciona en web) */}
+              <TouchableOpacity
+                style={s.exRemoveBtn}
+                activeOpacity={0.7}
+                onPress={()=>Alert.alert(
+                  '¿Eliminar ejercicio?',
+                  `Se eliminará "${ex.name || `Ejercicio ${exIdx+1}`}" de esta sesión.`,
+                  [
+                    { text:'Cancelar', style:'cancel' },
+                    { text:'Eliminar', style:'destructive', onPress:()=>removeExercise(exIdx) },
+                  ]
+                )}
+              >
+                <Text style={s.exRemoveTxt}>✕</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Sets — tarjeta vertical por set */}
@@ -1323,11 +1339,11 @@ export default function WorkoutScreen({ navigation }) {
                 <View key={setIdx} style={[s.setCard, isDone && s.setCardDone]}>
                   {/* ── Header: Set N + botones ── */}
                   <View style={s.setCardHeader}>
-                    {/* Botón done — toca el label o el círculo */}
+                    {/* Botón done — 44px mínimo, sin hitSlop */}
                     <TouchableOpacity
                       style={s.setDoneArea}
                       onPress={()=>toggleSetDone(exIdx,setIdx)}
-                      hitSlop={{top:6,bottom:6,left:6,right:6}}
+                      activeOpacity={0.7}
                     >
                       <View style={[s.setCircle, isDone&&s.setCircleDone]}>
                         <Text style={[s.setCircleTxt, isDone&&s.setCircleTxtDone]}>
@@ -1339,11 +1355,11 @@ export default function WorkoutScreen({ navigation }) {
                       </Text>
                     </TouchableOpacity>
 
-                    {/* Botón eliminar / limpiar */}
+                    {/* Botón eliminar set / limpiar — sin hitSlop */}
                     <TouchableOpacity
                       style={[s.setDelBtn, isOnly&&s.setDelBtnSoft]}
                       onPress={()=>removeSet(exIdx,setIdx)}
-                      hitSlop={{top:8,bottom:8,left:8,right:8}}
+                      activeOpacity={0.7}
                     >
                       <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>
                         {isOnly ? 'limpiar' : '−'}
@@ -1393,26 +1409,10 @@ export default function WorkoutScreen({ navigation }) {
               );
             })}
 
-            {/* Acciones del ejercicio */}
+            {/* Acciones del ejercicio — solo "+ Set", ✕ está en el header */}
             <View style={s.exFooter}>
-              <TouchableOpacity style={s.addSetBtn} onPress={()=>addSet(exIdx)} hitSlop={{top:10,bottom:10,left:10,right:10}}>
+              <TouchableOpacity style={s.addSetBtn} onPress={()=>addSet(exIdx)}>
                 <Text style={s.addSetTxt}>+ Set</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.removeExBtn}
-                hitSlop={{top:12,bottom:12,left:12,right:12}}
-                onPress={()=>{
-                  Alert.alert(
-                    'Quitar ejercicio',
-                    `¿Eliminar "${ex.name}" de esta sesión?`,
-                    [
-                      { text:'Cancelar', style:'cancel' },
-                      { text:'Eliminar', style:'destructive', onPress:()=>removeExercise(exIdx) },
-                    ]
-                  );
-                }}
-              >
-                <Text style={s.removeExTxt}>Quitar ✕</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1527,8 +1527,8 @@ function createStyles(colors) {
     setCardDone: { borderColor:colors.purple, opacity:0.72 },
 
     // Header de la tarjeta de set
-    setCardHeader: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
-    setDoneArea: { flexDirection:'row', alignItems:'center', gap:8, flex:1 },
+    setCardHeader: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:10, minHeight:44 },
+    setDoneArea: { flexDirection:'row', alignItems:'center', gap:8, flex:1, minHeight:44 },
     setCircle: {
       width:28, height:28, borderRadius:14,
       borderWidth:2, borderColor:colors.purpleDim,
@@ -1540,8 +1540,8 @@ function createStyles(colors) {
     setLabel: { fontSize:14, fontWeight:'600', color:colors.grayLight },
     setLabelDone: { color:colors.purpleLight },
 
-    // Botón eliminar set
-    setDelBtn: { paddingHorizontal:12, paddingVertical:6, borderRadius:RADIUS.full, backgroundColor:colors.bgCard, borderWidth:1, borderColor:colors.purpleDim, minWidth:36, alignItems:'center' },
+    // Botón eliminar set — minHeight:44 en vez de hitSlop
+    setDelBtn: { paddingHorizontal:12, paddingVertical:10, borderRadius:RADIUS.full, backgroundColor:colors.bgCard, borderWidth:1, borderColor:colors.purpleDim, minWidth:44, minHeight:44, alignItems:'center', justifyContent:'center' },
     setDelBtnSoft: { borderColor:'transparent', backgroundColor:'transparent' },
     setDelTxt: { fontSize:18, fontWeight:'700', color:colors.gray },
     setDelTxtSoft: { fontSize:12, color:colors.gray },
@@ -1618,21 +1618,26 @@ function createStyles(colors) {
 
     // T1 — chip con botón ⋯
     dayChipRow: { flexDirection:'row', alignItems:'center' },
-    chipMenuBtn: { paddingLeft:6, paddingRight:2, minWidth:28, minHeight:32, alignItems:'center', justifyContent:'center' },
-    chipMenuTxt: { fontSize:17, color:colors.gray, fontWeight:'900', lineHeight:20 },
+    // 44×44 real — hitSlop NO funciona en React Native Web
+    chipMenuBtn: { width:44, height:44, alignItems:'center', justifyContent:'center', marginLeft:2 },
+    chipMenuTxt: { fontSize:18, color:colors.gray, fontWeight:'900', lineHeight:22 },
 
-    // T1 — bottom sheet (menú chip)
+    // T1 — bottom sheet con flex-end (funciona en web y nativo)
+    bsOverlay: { flex:1, justifyContent:'flex-end', backgroundColor:'rgba(0,0,0,0.72)' },
     bottomSheet: {
-      position:'absolute', bottom:0, left:0, right:0,
       backgroundColor:colors.bgCard,
       borderTopLeftRadius:RADIUS.xl, borderTopRightRadius:RADIUS.xl,
-      paddingBottom:32, paddingTop:12,
+      paddingBottom:40, paddingTop:12,
       borderTopWidth:1, borderColor:colors.purpleDim,
     },
     bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
     bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
-    bsOption: { paddingVertical:16, paddingHorizontal:20 },
+    bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
     bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
+
+    // ✕ ejercicio — esquina superior derecha, 44×44 sin hitSlop
+    exRemoveBtn: { width:44, height:44, alignItems:'center', justifyContent:'center', marginLeft:4 },
+    exRemoveTxt: { fontSize:20, color:'#ef4444', fontWeight:'700', lineHeight:24 },
 
     // T4 — indicador datos locales
     localDataHint: { fontSize:11, color:colors.gray, marginLeft:8, opacity:0.8 },
