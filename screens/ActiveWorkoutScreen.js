@@ -7,9 +7,10 @@ import {
 import { Share } from 'react-native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getLogs, saveLog, getWeightUnit, shareRoutine } from '../storage';
+import { getLogs, saveLog, getWeightUnit, getRestTimerSeconds, shareRoutine } from '../storage';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
+import { IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
@@ -102,6 +103,8 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
   const [autoSaveState, setAutoSaveState] = useState('idle');
   const [completed, setCompleted] = useState(false);
   const [weightUnit, setWeightUnit] = useState('kg');
+  const [restTimerSeconds, setRestTimerSeconds] = useState(90);
+  const [restLeft, setRestLeft] = useState(0);
 
   const [panchitaReaction, setPanchitaReaction] = useState(false);
   const [reactionPhrase, setReactionPhrase]     = useState('');
@@ -130,10 +133,14 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
   });
 
   const autoSaveTimerRef = useRef(null);
+  const restIntervalRef = useRef(null);
   const lastSavedLogRef  = useRef('');
 
-  // Cargar unidad una vez
-  useEffect(()=>{ getWeightUnit().then(u=>setWeightUnit(u)); },[]);
+  // Cargar preferencias una vez
+  useEffect(()=>{
+    getWeightUnit().then(u=>setWeightUnit(u));
+    getRestTimerSeconds().then(sec=>setRestTimerSeconds(sec));
+  },[]);
 
   // Iniciar sesión cuando cambia la rutina
   useEffect(()=>{
@@ -144,7 +151,26 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
   },[routine?.id]);
 
   // Cleanup al desmontar
-  useEffect(()=>()=>{ if(autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); },[]);
+  useEffect(()=>()=>{
+    if(autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if(restIntervalRef.current) clearInterval(restIntervalRef.current);
+  },[]);
+
+  useEffect(()=>{
+    if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+    if (restLeft <= 0) return;
+    restIntervalRef.current = setInterval(()=>{
+      setRestLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(restIntervalRef.current);
+          restIntervalRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return ()=>{ if(restIntervalRef.current) clearInterval(restIntervalRef.current); };
+  },[restLeft]);
 
   // Autosave debounced 900ms
   useEffect(()=>{
@@ -281,6 +307,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
         const phrase = SET_PHRASES[Math.floor(Math.random()*SET_PHRASES.length)];
         setReactionPhrase(phrase);
         setPanchitaReaction(true);
+        if (restTimerSeconds > 0) setRestLeft(restTimerSeconds);
         setTimeout(()=>setPanchitaReaction(false),2500);
       }
       return updated;
@@ -449,21 +476,42 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
       {/* ── Header ── */}
       <View style={s.header}>
         <TouchableOpacity onPress={handleBack} style={s.headerBack} activeOpacity={0.7}>
-          <Text style={s.headerBackTxt}>← Volver</Text>
+          <IconBack size={20} color={colors.purpleLight} />
+          <Text style={s.headerBackTxt}>Volver</Text>
         </TouchableOpacity>
         <Text style={s.headerTitle} numberOfLines={1}>{routine?.name||routine?.day||''}</Text>
         <TouchableOpacity onPress={()=>setShowMenu(true)} style={s.headerMenuBtn} activeOpacity={0.7}>
-          <Text style={s.headerMenuTxt}>⋯</Text>
+          <IconMenuDots size={22} color={colors.gray} />
         </TouchableOpacity>
       </View>
 
       {/* Barra de estado guardado */}
       <View style={s.saveBar}>
         {autoSaveState==='saving'&&<Text style={s.saveBarTxt}>Guardando...</Text>}
-        {autoSaveState==='saved'&&!completed&&<Text style={s.saveBarTxt}>✓ Guardado</Text>}
-        {autoSaveState==='error'&&<Text style={[s.saveBarTxt,{color:'#ef4444'}]}>⚠ Error al guardar</Text>}
-        {completed&&<Text style={[s.saveBarTxt,{color:colors.lime||'#a3e635'}]}>Sesión completada ✓</Text>}
+        {autoSaveState==='saved'&&!completed&&<View style={s.saveBarInline}><IconCheck size={14} color={colors.gray} /><Text style={s.saveBarTxt}>Guardado</Text></View>}
+        {autoSaveState==='error'&&<View style={s.saveBarInline}><IconWarning size={14} color={'#ef4444'} /><Text style={[s.saveBarTxt,{color:'#ef4444'}]}>Error al guardar</Text></View>}
+        {completed&&<View style={s.saveBarInline}><IconCheck size={14} color={colors.lime||'#a3e635'} /><Text style={[s.saveBarTxt,{color:colors.lime||'#a3e635'}]}>Sesión completada</Text></View>}
       </View>
+
+      {restLeft > 0 && (
+        <View style={s.restTimerCard}>
+          <View style={s.restTimerLeft}>
+            <IconTimer size={24} color={colors.purpleLight} />
+            <View>
+              <Text style={s.restTimerLabel}>Descanso</Text>
+              <Text style={s.restTimerTime}>{Math.floor(restLeft/60)}:{String(restLeft%60).padStart(2,'0')}</Text>
+            </View>
+          </View>
+          <View style={s.restTimerActions}>
+            <TouchableOpacity style={s.restTimerMiniBtn} onPress={()=>setRestLeft(prev=>prev+30)}>
+              <Text style={s.restTimerMiniTxt}>+30s</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.restTimerMiniBtn} onPress={()=>setRestLeft(0)}>
+              <Text style={s.restTimerMiniTxt}>Saltar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Modal completado */}
       <Modal visible={showCompletion} transparent animationType="fade">
@@ -493,7 +541,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
               <Text style={s.bsOptionTxt}>+ Agregar ejercicio</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowMenu(false); setTimeout(()=>openShareModal(),180); }}>
-              <Text style={s.bsOptionTxt}>🔗 Compartir rutina</Text>
+              <View style={s.bsOptionInline}><IconShare size={18} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>Compartir rutina</Text></View>
             </TouchableOpacity>
             <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim,marginTop:4}]} onPress={()=>setShowMenu(false)}>
               <Text style={[s.bsOptionTxt,{color:colors.gray}]}>Cancelar</Text>
@@ -513,7 +561,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                 <Text style={s.shareSubtitle}>{routine?.name||routine?.day}</Text>
                 <TouchableOpacity style={s.shareCodeBox} onPress={copyShareCode} activeOpacity={0.7}>
                   <Text style={s.shareCodeText}>{shareCode}</Text>
-                  <Text style={s.shareCodeHint}>{codeCopied?'✓ Compartido!':'Tap para compartir'}</Text>
+                  <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Tap para compartir'}</Text>
                 </TouchableOpacity>
                 {shareWarning
                   ?<Text style={s.shareWarningText}>{shareWarning}</Text>
@@ -521,7 +569,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                 }
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
                 <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
-                  <Text style={s.modalBtnText}>{codeCopied?'✓ Compartido!':'📤 Compartir código'}</Text>
+                  <View style={s.modalBtnInline}><IconShare size={17} color={'#fff'} /><Text style={s.modalBtnText}>{codeCopied?'Compartido':'Compartir código'}</Text></View>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>setShowShareModal(false)} style={{marginTop:10}}>
                   <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
@@ -584,7 +632,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
 
         {completed&&(
           <View style={s.completedBanner}>
-            <Text style={s.completedText}>Sesión completada hoy ✓</Text>
+            <View style={s.completedInline}><IconCheck size={16} color={colors.purpleLight} /><Text style={s.completedText}>Sesión completada hoy</Text></View>
           </View>
         )}
 
@@ -625,7 +673,7 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                   onConfirm:()=>{ hideConfirm(); removeExercise(exIdx); },
                 })}
               >
-                <Text style={s.exRemoveTxt}>✕</Text>
+                <IconClose size={18} color={'#ef4444'} />
               </TouchableOpacity>
             </View>
 
@@ -640,12 +688,12 @@ export default function ActiveWorkoutScreen({ routine, onClose, onFinish }) {
                   <View style={s.setCardHeader}>
                     <TouchableOpacity style={s.setDoneArea} onPress={()=>toggleSetDone(exIdx,setIdx)} activeOpacity={0.7}>
                       <View style={[s.setCircle, isDone&&s.setCircleDone]}>
-                        <Text style={[s.setCircleTxt, isDone&&s.setCircleTxtDone]}>{isDone?'✓':setIdx+1}</Text>
+                        {isDone ? <IconCheck size={14} color="#fff" /> : <Text style={s.setCircleTxt}>{setIdx+1}</Text>}
                       </View>
                       <Text style={[s.setLabel, isDone&&s.setLabelDone]}>{isDone?'Completado':`Set ${setIdx+1}`}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[s.setDelBtn, isOnly&&s.setDelBtnSoft]} onPress={()=>removeSet(exIdx,setIdx)} activeOpacity={0.7}>
-                      <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>{isOnly?'limpiar':'−'}</Text>
+                      <Text style={[s.setDelTxt, isOnly&&s.setDelTxtSoft]}>{isOnly?'limpiar':'-'}</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={s.setInputRow}>
@@ -727,7 +775,7 @@ function createStyles(colors) {
 
     // Header
     header: { flexDirection:'row', alignItems:'center', paddingHorizontal:14, paddingVertical:12, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, minHeight:52 },
-    headerBack: { paddingVertical:8, paddingRight:12, minWidth:80 },
+    headerBack: { flexDirection:'row', alignItems:'center', gap:5, paddingVertical:8, paddingRight:12, minWidth:80 },
     headerBackTxt: { color:colors.purpleLight, fontSize:14, fontWeight:'600' },
     headerTitle: { flex:1, fontSize:16, fontWeight:'700', color:colors.white, textAlign:'center' },
     headerMenuBtn: { minWidth:80, height:44, alignItems:'flex-end', justifyContent:'center', paddingLeft:12 },
@@ -736,6 +784,14 @@ function createStyles(colors) {
     // Save bar
     saveBar: { height:26, paddingHorizontal:14, backgroundColor:colors.bgCard, borderBottomWidth:1, borderBottomColor:colors.purpleDim, justifyContent:'center', alignItems:'flex-end' },
     saveBarTxt: { fontSize:11, color:colors.gray },
+    saveBarInline: { flexDirection:'row', alignItems:'center', gap:5 },
+    restTimerCard: { marginHorizontal:12, marginTop:10, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, borderWidth:1, borderColor:colors.purple, padding:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
+    restTimerLeft: { flexDirection:'row', alignItems:'center', gap:10 },
+    restTimerLabel: { color:colors.gray, fontSize:11, fontWeight:'700', textTransform:'uppercase', letterSpacing:1 },
+    restTimerTime: { color:colors.white, fontSize:24, fontWeight:'900', marginTop:1 },
+    restTimerActions: { flexDirection:'row', gap:8 },
+    restTimerMiniBtn: { backgroundColor:colors.bgInput, borderRadius:RADIUS.full, paddingVertical:8, paddingHorizontal:10, borderWidth:1, borderColor:colors.purpleDim },
+    restTimerMiniTxt: { color:colors.purpleLight, fontSize:12, fontWeight:'800' },
 
     // Autosave popup
     autosavePop: { position:'absolute', bottom:88, left:12, flexDirection:'row', alignItems:'center', gap:8, backgroundColor:colors.bgCard, borderRadius:RADIUS.lg, padding:10, borderWidth:1, borderColor:colors.purpleDim, zIndex:999, maxWidth:'72%', shadowColor:'#7c3aed', shadowOpacity:0.3, shadowRadius:6, elevation:8 },
@@ -750,6 +806,7 @@ function createStyles(colors) {
 
     // Completado
     completedBanner: { backgroundColor:colors.purpleDim, borderRadius:RADIUS.md, padding:10, marginBottom:12, alignItems:'center', borderWidth:1, borderColor:colors.purple },
+    completedInline: { flexDirection:'row', alignItems:'center', gap:6 },
     completedText: { color:colors.purpleLight, fontWeight:'600', fontSize:14 },
 
     // Empty exercises
@@ -813,6 +870,7 @@ function createStyles(colors) {
     modalTitle: { fontSize:20, fontWeight:'700', color:colors.white, textAlign:'center' },
     modalPhrase: { fontSize:14, color:colors.grayLight, textAlign:'center', lineHeight:20 },
     modalBtn: { backgroundColor:colors.purple, borderRadius:RADIUS.full, paddingVertical:13, paddingHorizontal:28, alignSelf:'stretch', alignItems:'center' },
+    modalBtnInline: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8 },
     modalBtnText: { color:'#fff', fontWeight:'700', fontSize:15 },
 
     // Share
@@ -830,6 +888,7 @@ function createStyles(colors) {
     bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
     bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
     bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
+    bsOptionInline: { flexDirection:'row', alignItems:'center', gap:10 },
     bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
 
     createInput: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, padding:12, fontSize:14, color:colors.white, borderWidth:1, borderColor:colors.purpleDim, alignSelf:'stretch' },

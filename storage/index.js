@@ -456,6 +456,31 @@ export async function saveWeightUnit(unit) {
   }
 }
 
+// ─── Timer de descanso ─────────────────────────────────────
+const REST_TIMER_KEY = 'panchita_restTimerSeconds';
+
+export async function getRestTimerSeconds() {
+  try {
+    const val = await AsyncStorage.getItem(REST_TIMER_KEY);
+    const n = parseInt(val, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 90;
+  } catch { return 90; }
+}
+
+export async function saveRestTimerSeconds(seconds) {
+  const normalized = Math.max(0, parseInt(seconds, 10) || 0);
+  try {
+    await AsyncStorage.setItem(REST_TIMER_KEY, String(normalized));
+    withTimeout(
+      setDoc(userDoc('settings/preferences'), { restTimerSeconds: normalized }, { merge: true }),
+      5000,
+      'saveRestTimerSeconds'
+    ).catch(e => console.warn('saveRestTimerSeconds remote failed:', e));
+  } catch (e) {
+    console.warn('saveRestTimerSeconds local failed:', e);
+  }
+}
+
 // ─── Programación semanal ──────────────────────────────────
 // Estructura: { L: {id, name} | 'rest' | null, M: ..., X: ..., J: ..., V: ..., S: ..., D: ... }
 const WEEK_SCHEDULE_KEY = 'panchita_weekSchedule';

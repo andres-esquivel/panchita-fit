@@ -7,7 +7,8 @@ import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getWeightUnit, saveWeightUnit, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+import { IconBolt, IconFire, IconLeaf, IconMoon, IconScale, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle } from '../components/icons';
+import { getWeightUnit, saveWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 // Días de la semana en orden visual L-D
 const WEEK_DAYS = ['L','M','X','J','V','S','D'];
@@ -16,27 +17,27 @@ const WEEK_DAY_NAMES = { L:'Lunes', M:'Martes', X:'Miércoles', J:'Jueves', V:'V
 // ─── Meta de paletas (UI preview) ─────────────────────────────
 const PALETTE_OPTIONS = [
   {
-    key: 'purple', emoji: '🌙', name: 'Noche\nPúrpura',
+    key: 'purple', icon: IconMoon, name: 'Noche\nPúrpura',
     previewBg: '#0d0d1a', previewAccent: '#7c3aed', previewBtn: '#a855f7',
   },
   {
-    key: 'light',  emoji: '☀️', name: 'Día\nClaro',
+    key: 'light',  icon: IconSun, name: 'Día\nClaro',
     previewBg: '#f8f8f8', previewAccent: '#6d28d9', previewBtn: '#7c3aed',
   },
   {
-    key: 'beast',  emoji: '⚡', name: 'Modo\nBestia',
+    key: 'beast',  icon: IconBolt, name: 'Modo\nBestia',
     previewBg: '#0a0a0a', previewAccent: '#39ff14', previewBtn: '#39ff14',
   },
   {
-    key: 'ocean',  emoji: '🌊', name: 'Océano',
+    key: 'ocean',  icon: IconWater, name: 'Océano',
     previewBg: '#0a1628', previewAccent: '#0ea5e9', previewBtn: '#38bdf8',
   },
   {
-    key: 'fire',   emoji: '🔥', name: 'Fuego',
+    key: 'fire',   icon: IconFire, name: 'Fuego',
     previewBg: '#1a0a0a', previewAccent: '#ef4444', previewBtn: '#f97316',
   },
   {
-    key: 'jungle', emoji: '🌿', name: 'Selva',
+    key: 'jungle', icon: IconLeaf, name: 'Selva',
     previewBg: '#0a1a0a', previewAccent: '#22c55e', previewBtn: '#4ade80',
   },
 ];
@@ -46,6 +47,7 @@ export default function SettingsScreen() {
   const s = useMemo(() => createStyles(colors), [colors]);
 
   const [weightUnit, setWeightUnit] = useState('kg');
+  const [restTimerSeconds, setRestTimerSeconds] = useState(90);
 
   // T3 — programación semanal
   const [weekSchedule, setWeekSchedule] = useState({});
@@ -55,6 +57,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     getWeightUnit().then(setWeightUnit);
+    getRestTimerSeconds().then(setRestTimerSeconds);
     loadWeekData();
   }, []);
 
@@ -82,6 +85,11 @@ export default function SettingsScreen() {
   async function handleWeightUnitChange(unit) {
     setWeightUnit(unit);
     await saveWeightUnit(unit);
+  }
+
+  async function handleRestTimerChange(seconds) {
+    setRestTimerSeconds(seconds);
+    await saveRestTimerSeconds(seconds);
   }
 
   function handleLogout() {
@@ -121,7 +129,7 @@ export default function SettingsScreen() {
               >
                 {/* Mini preview del fondo de la paleta */}
                 <View style={[s.paletteBg, { backgroundColor: opt.previewBg }]}>
-                  <Text style={s.paletteEmoji}>{opt.emoji}</Text>
+                  <opt.icon size={28} color={opt.previewAccent} />
                 </View>
 
                 {/* Tres círculos de color */}
@@ -139,7 +147,7 @@ export default function SettingsScreen() {
                 {/* Checkmark activo */}
                 {isActive && (
                   <View style={[s.paletteCheck, { backgroundColor: opt.previewAccent }]}>
-                    <Text style={[s.paletteCheckTxt, { color: colors.accentText }]}>✓</Text>
+                    <IconCheck size={13} color={colors.accentText} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -153,7 +161,7 @@ export default function SettingsScreen() {
           <View style={s.row}>
             <View style={s.rowLeft}>
               <View style={s.iconBg}>
-                <Text style={{ fontSize: 18 }}>⚖️</Text>
+                <IconScale size={20} color={colors.purpleLight} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>Unidad de peso</Text>
@@ -175,6 +183,31 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          <View style={[s.row, s.rowBorder]}>
+            <View style={s.rowLeft}>
+              <View style={s.iconBg}>
+                <IconTimer size={20} color={colors.purpleLight} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Descanso entre sets</Text>
+                <Text style={s.rowSub}>Arranca cuando marcás un set completado</Text>
+              </View>
+            </View>
+          </View>
+          <View style={s.restTimerGrid}>
+            {[0, 60, 90, 120, 180].map(sec => (
+              <TouchableOpacity
+                key={sec}
+                style={[s.restTimerBtn, restTimerSeconds === sec && s.restTimerBtnActive]}
+                onPress={() => handleRestTimerChange(sec)}
+                activeOpacity={0.75}
+              >
+                <Text style={[s.restTimerText, restTimerSeconds === sec && s.restTimerTextActive]}>
+                  {sec === 0 ? 'Off' : `${sec}s`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* ── MI SEMANA ── */}
@@ -189,8 +222,8 @@ export default function SettingsScreen() {
                 <TouchableOpacity key={day} style={s.dayCell} onPress={()=>openDayPicker(day)} activeOpacity={0.7}>
                   <Text style={[s.dayCellLabel, hasRoutine&&s.dayCellLabelActive, isRest&&s.dayCellLabelRest]}>{day}</Text>
                   <View style={[s.dayCellDot, hasRoutine&&s.dayCellDotActive, isRest&&s.dayCellDotRest]}>
-                    {isRest&&<Text style={{fontSize:8}}>💤</Text>}
-                    {hasRoutine&&<Text style={{fontSize:8}}>💪</Text>}
+                    {isRest&&<IconSleep size={15} color={colors.grayLight} />}
+                    {hasRoutine&&<IconMuscle size={15} color={colors.purpleLight} />}
                   </View>
                   {hasRoutine&&(
                     <Text style={s.dayCellName} numberOfLines={1}>{val.name?.split(' ')[0]||'?'}</Text>
@@ -211,18 +244,18 @@ export default function SettingsScreen() {
               <Text style={s.bottomSheetTitle}>{pickerDay?WEEK_DAY_NAMES[pickerDay]:''}</Text>
               <ScrollView style={{maxHeight:320}} showsVerticalScrollIndicator={false}>
                 <TouchableOpacity style={s.bsOption} onPress={()=>assignDay(pickerDay,'rest')}>
-                  <Text style={s.bsOptionTxt}>💤  Descanso</Text>
+                  <View style={s.bsOptionRow}><IconSleep size={18} color={colors.grayLight} /><Text style={s.bsOptionTxt}>Descanso</Text></View>
                 </TouchableOpacity>
                 {routines.map(r=>(
                   <TouchableOpacity key={r.id} style={s.bsOption} onPress={()=>assignDay(pickerDay,{id:r.id,name:r.name||r.day})}>
-                    <Text style={s.bsOptionTxt}>💪  {r.name||r.day}</Text>
+                    <View style={s.bsOptionRow}><IconMuscle size={18} color={colors.purpleLight} /><Text style={s.bsOptionTxt}>{r.name||r.day}</Text></View>
                   </TouchableOpacity>
                 ))}
                 {routines.length===0&&(
                   <Text style={{color:colors.gray,padding:16,fontSize:13}}>Sin rutinas guardadas aún.</Text>
                 )}
                 <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim}]} onPress={()=>assignDay(pickerDay,null)}>
-                  <Text style={[s.bsOptionTxt,{color:colors.gray}]}>✕  Quitar asignación</Text>
+                  <View style={s.bsOptionRow}><IconClose size={16} color={colors.gray} /><Text style={[s.bsOptionTxt,{color:colors.gray}]}>Quitar asignación</Text></View>
                 </TouchableOpacity>
               </ScrollView>
             </View>
@@ -251,7 +284,7 @@ export default function SettingsScreen() {
           </View>
           <View style={[s.infoRow, s.infoRowLast]}>
             <Text style={s.infoLabel}>Hecha con</Text>
-            <Text style={s.infoValue}>💜 y mucho gym</Text>
+            <Text style={s.infoValue}>Panchita + mucho gym</Text>
           </View>
         </View>
 
@@ -274,7 +307,7 @@ export default function SettingsScreen() {
           <Text style={s.logoutText}>Cerrar sesión</Text>
         </TouchableOpacity>
 
-        <Text style={s.footer}>PanchitaFit · Tu coach salchicha favorita 🐾</Text>
+        <Text style={s.footer}>PanchitaFit · Tu coach salchicha favorita</Text>
 
       </ScrollView>
     </SafeAreaView>
@@ -313,7 +346,6 @@ function createStyles(colors) {
     paletteBg: {
       height: 58, alignItems: 'center', justifyContent: 'center',
     },
-    paletteEmoji: { fontSize: 26 },
     paletteCircles: {
       flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingTop: 10,
     },
@@ -355,6 +387,7 @@ function createStyles(colors) {
     },
     rowLabel: { fontSize: 15, fontWeight: '600', color: colors.white },
     rowSub:   { fontSize: 11, color: colors.gray, marginTop: 2 },
+    rowBorder:{ borderTopWidth: 1, borderTopColor: colors.purpleDim },
 
     // ── Toggle kg/lb ──
     unitToggle: {
@@ -366,6 +399,11 @@ function createStyles(colors) {
     unitBtnActive:   { backgroundColor: colors.purple },
     unitBtnText:     { fontSize: 14, fontWeight: '700', color: colors.gray },
     unitBtnTextActive: { color: colors.accentText },
+    restTimerGrid: { flexDirection:'row', flexWrap:'wrap', gap:8, paddingHorizontal:16, paddingBottom:14 },
+    restTimerBtn: { minWidth:58, paddingVertical:9, paddingHorizontal:12, borderRadius:RADIUS.full, backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center' },
+    restTimerBtnActive: { backgroundColor:colors.purple, borderColor:colors.purple },
+    restTimerText: { fontSize:13, fontWeight:'800', color:colors.grayLight },
+    restTimerTextActive: { color:colors.accentText||'#fff' },
 
     // ── Info rows ──
     infoRow: {
@@ -416,6 +454,7 @@ function createStyles(colors) {
     bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
     bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
     bsOption: { paddingVertical:16, paddingHorizontal:20, minHeight:52 },
+    bsOptionRow: { flexDirection:'row', alignItems:'center', gap:10 },
     bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
   });
 }
