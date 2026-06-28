@@ -19,6 +19,7 @@ import {
 import { IconShare } from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
+import ConfirmModal from '../components/ConfirmModal';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
@@ -252,6 +253,12 @@ export default function WorkoutScreen({ navigation }) {
   const [initialLoading, setInitialLoading]   = useState(true);
   const [usingLocalData, setUsingLocalData]   = useState(false);
 
+  // ── ConfirmModal — reemplaza Alert.alert (no funciona en web móvil) ──
+  const [confirmModal, setConfirmModal] = useState({
+    visible:false, title:'', message:'', confirmText:'Confirmar',
+    confirmDestructive:false, onConfirm:null, showCancel:true,
+  });
+
   // Compartir rutina
   const [showShareModal, setShowShareModal]   = useState(false);
   const [shareCode, setShareCode]             = useState('');
@@ -313,6 +320,18 @@ export default function WorkoutScreen({ navigation }) {
       }
     },900);
   },[log, selectedWorkout?.id, completed]);
+
+  // ─── ConfirmModal helpers ─────────────────────────────────
+  function showConfirm({ title, message='', onConfirm, confirmDestructive=false, confirmText='Confirmar' }) {
+    setConfirmModal({ visible:true, title, message, onConfirm, confirmDestructive, confirmText, showCancel:true });
+  }
+  function hideConfirm() {
+    setConfirmModal(prev=>({ ...prev, visible:false }));
+  }
+  // Para errores/info: solo botón OK, sin cancelar
+  function showInfo(title, message='') {
+    setConfirmModal({ visible:true, title, message, onConfirm:hideConfirm, confirmDestructive:false, confirmText:'Ok', showCancel:false });
+  }
 
   async function loadAll() {
     // ── FASE 1: local inmediato < 200ms ─────────────────────
@@ -552,7 +571,7 @@ export default function WorkoutScreen({ navigation }) {
     } catch(e) {
       console.warn('manual save failed:',e);
       setAutoSaveState('error');
-      Alert.alert('Panchita dice:','No pude guardar. Intentá otra vez.');
+      showInfo('Panchita dice:','No pude guardar. Intentá otra vez.');
     } finally { setSaving(false); }
   }
 
@@ -572,7 +591,7 @@ export default function WorkoutScreen({ navigation }) {
       setShowCompletion(true);
     } catch(e) {
       console.warn('finish workout failed:',e);
-      Alert.alert('Panchita dice:','No pude terminar la rutina. Intentá otra vez.');
+      showInfo('Panchita dice:','No pude terminar la rutina. Intentá otra vez.');
     } finally { setSaving(false); }
   }
 
@@ -637,7 +656,7 @@ export default function WorkoutScreen({ navigation }) {
   async function saveEditedRoutine() {
     if (!editingRoutine) return;
     const exercises = editExercises.map(e=>e.trim()).filter(Boolean);
-    if (exercises.length===0) { Alert.alert('Error','Agregá al menos un ejercicio.'); return; }
+    if (exercises.length===0) { showInfo('Error','Agregá al menos un ejercicio.'); return; }
     setEditingRoutineSaving(true);
     try {
       const updated = { ...editingRoutine, exercises };
@@ -646,7 +665,7 @@ export default function WorkoutScreen({ navigation }) {
       setShowEditModal(false);
       if (selectedWorkout?.id===updated.id) await selectWorkout(updated);
     } catch(e) {
-      Alert.alert('Error','No se pudo guardar. Revisá conexión.');
+      showInfo('Error','No se pudo guardar. Revisá conexión.');
     } finally { setEditingRoutineSaving(false); }
   }
 
@@ -662,7 +681,7 @@ export default function WorkoutScreen({ navigation }) {
       setShareCode(code);
     } catch(e) {
       setShowShareModal(false);
-      Alert.alert('Error', 'No se pudo generar el código. Revisá tu conexión.');
+      showInfo('Error', 'No se pudo generar el código. Revisá tu conexión.');
     } finally {
       setSharingLoading(false);
     }
@@ -726,14 +745,15 @@ export default function WorkoutScreen({ navigation }) {
   }
 
   // ─── Duplicar / eliminar rutina ───────────────────────────
-  function confirmRoutineAction(routine) {
-    Alert.alert(routine.name||routine.day, '¿Qué querés hacer?', [
-      { text:'Cancelar', style:'cancel' },
-      { text:'Compartir 🔗', onPress:()=>openShareRoutine(routine) },
-      { text:'Editar ejercicios', onPress:()=>openEditModal(routine) },
-      { text:'Duplicar', onPress:()=>duplicateRoutine(routine) },
-      { text:'Eliminar', style:'destructive', onPress:()=>doDeleteRoutine(routine) },
-    ]);
+  // Nota: ya no se usa directamente — el menú ⋯ llama a showConfirm directamente
+  function confirmDeleteRoutine(routine) {
+    showConfirm({
+      title: '¿Eliminar rutina?',
+      message: `Se eliminará "${routine.name||routine.day}" permanentemente. Esta acción no se puede deshacer.`,
+      confirmText: 'Sí, eliminar',
+      confirmDestructive: true,
+      onConfirm: () => { hideConfirm(); doDeleteRoutine(routine); },
+    });
   }
 
   async function duplicateRoutine(routine) {
@@ -780,7 +800,7 @@ export default function WorkoutScreen({ navigation }) {
       }
       setShowEditNameModal(false);
     } catch(e) {
-      Alert.alert('Error','No se pudo guardar el nombre.');
+      showInfo('Error','No se pudo guardar el nombre.');
     } finally { setEditNameSaving(false); }
   }
 
@@ -1068,10 +1088,8 @@ export default function WorkoutScreen({ navigation }) {
             <TouchableOpacity style={s.bsOption} onPress={()=>{
               const r=chipMenuRoutine;
               setShowChipMenu(false);
-              setTimeout(()=>Alert.alert('Eliminar rutina',`¿Eliminás "${r?.name||r?.day}"?`,[
-                {text:'Cancelar',style:'cancel'},
-                {text:'Eliminar',style:'destructive',onPress:()=>doDeleteRoutine(r)},
-              ]),200);
+              // Pequeño delay para que el bottom sheet cierre antes de abrir el confirm modal
+              setTimeout(()=>confirmDeleteRoutine(r), 200);
             }}>
               <Text style={[s.bsOptionTxt,{color:colors.danger}]}>🗑️  Eliminar</Text>
             </TouchableOpacity>
@@ -1310,18 +1328,17 @@ export default function WorkoutScreen({ navigation }) {
                   </TouchableOpacity>
                 ))}
               </View>
-              {/* Botón ✕ — 44×44 explícito, sin hitSlop (no funciona en web) */}
+              {/* Botón ✕ — 44×44, usa ConfirmModal (Alert.alert no funciona en web) */}
               <TouchableOpacity
                 style={s.exRemoveBtn}
                 activeOpacity={0.7}
-                onPress={()=>Alert.alert(
-                  '¿Eliminar ejercicio?',
-                  `Se eliminará "${ex.name || `Ejercicio ${exIdx+1}`}" de esta sesión.`,
-                  [
-                    { text:'Cancelar', style:'cancel' },
-                    { text:'Eliminar', style:'destructive', onPress:()=>removeExercise(exIdx) },
-                  ]
-                )}
+                onPress={()=>showConfirm({
+                  title: '¿Eliminar ejercicio?',
+                  message: `Se eliminará "${ex.name || `Ejercicio ${exIdx+1}`}" de esta sesión.`,
+                  confirmText: 'Eliminar',
+                  confirmDestructive: true,
+                  onConfirm: () => { hideConfirm(); removeExercise(exIdx); },
+                })}
               >
                 <Text style={s.exRemoveTxt}>✕</Text>
               </TouchableOpacity>
@@ -1433,6 +1450,17 @@ export default function WorkoutScreen({ navigation }) {
         )}
       </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ConfirmModal — reemplaza Alert.alert globalmente en esta pantalla */}
+      <ConfirmModal
+        visible={confirmModal.visible}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={confirmModal.showCancel ? hideConfirm : null}
+        confirmText={confirmModal.confirmText}
+        confirmDestructive={confirmModal.confirmDestructive}
+      />
     </SafeAreaView>
   );
 }
