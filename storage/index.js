@@ -101,7 +101,26 @@ export async function getCustomRoutines() {
   const local = await getLocalList('customRoutines');
   try {
     const remote = await withTimeout(getAll('customRoutines'), 3500, 'customRoutines');
-    const merged = mergeById(remote, local);
+    // Merge inteligente: si Firestore tiene la rutina pero sin ejercicios
+    // (sync parcial anterior), preservar los ejercicios del local.
+    const baseMap = new Map();
+    local.forEach(r => { if (r?.id) baseMap.set(r.id, r); });
+    const merged = mergeById(remote, local).map(routine => {
+      const hasExercises = Array.isArray(routine.exercises) && routine.exercises.length > 0;
+      if (!hasExercises) {
+        const localVersion = baseMap.get(routine.id);
+        if (localVersion?.exercises?.length > 0) {
+          const fixed = { ...routine, exercises: localVersion.exercises };
+          // Re-sync al Firestore en background para corregir el dato remoto
+          withTimeout(
+            setDoc(doc(userCol('customRoutines'), routine.id), fixed, { merge: true }),
+            6500, 'fixRoutineExercises'
+          ).catch(e => console.warn('Re-sync routine exercises failed:', e));
+          return fixed;
+        }
+      }
+      return routine;
+    });
     await setLocalList('customRoutines', merged);
     return merged;
   } catch {
@@ -368,6 +387,29 @@ export async function shouldShowWeeklyReview() {
   sunday.setDate(sunday.getDate() - sunday.getDay());
   const weekEnd = sunday.toISOString().split('T')[0];
   return { weekKey, weekEnd };
+}
+
+// ─── Unidad de peso (kg / lb) ──────────────────────────────
+const WEIGHT_UNIT_KEY = 'panchita_weightUnit';
+
+export async function getWeightUnit() {
+  try {
+    const val = await AsyncStorage.getItem(WEIGHT_UNIT_KEY);
+    return val === 'lb' ? 'lb' : 'kg';
+  } catch { return 'kg'; }
+}
+
+export async function saveWeightUnit(unit) {
+  try {
+    await AsyncStorage.setItem(WEIGHT_UNIT_KEY, unit);
+    // Sincronizar en Firestore también
+    withTimeout(
+      setDoc(userDoc('settings/preferences'), { weightUnit: unit }, { merge: true }),
+      5000, 'saveWeightUnit'
+    ).catch(e => console.warn('saveWeightUnit remote failed:', e));
+  } catch (e) {
+    console.warn('saveWeightUnit local failed:', e);
+  }
 }
 
 // ─── Limpiar todo (debug) ──────────────────────────────────

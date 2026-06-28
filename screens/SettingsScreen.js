@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Switch, SafeAreaView, ScrollView,
   TouchableOpacity, Alert,
@@ -7,6 +7,7 @@ import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
+import { getWeightUnit, saveWeightUnit } from '../storage';
 
 function IconMoon({ color, size = 20 }) { return <Text style={{ fontSize: size, color }}>🌙</Text>; }
 function IconSun({ color, size = 20 })  { return <Text style={{ fontSize: size, color }}>☀️</Text>; }
@@ -15,10 +16,21 @@ export default function SettingsScreen() {
   const { isDark, toggleTheme, colors } = useTheme();
   const s = useMemo(() => createStyles(colors), [colors]);
 
+  const [weightUnit, setWeightUnit] = useState('kg');
+
+  useEffect(() => {
+    getWeightUnit().then(setWeightUnit);
+  }, []);
+
+  async function handleWeightUnitChange(unit) {
+    setWeightUnit(unit);
+    await saveWeightUnit(unit);
+  }
+
   function handleLogout() {
     Alert.alert(
       'Cerrar sesión',
-      '¿Segús querés salir?',
+      '¿Seguro querés salir?',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Salir', style: 'destructive', onPress: () => signOut(auth) },
@@ -55,6 +67,36 @@ export default function SettingsScreen() {
               thumbColor={isDark ? colors.purpleLight : '#ffffff'}
               ios_backgroundColor={colors.purpleDim}
             />
+          </View>
+        </View>
+
+        <Text style={s.sectionTitle}>ENTRENAMIENTO</Text>
+        <View style={s.card}>
+          <View style={s.row}>
+            <View style={s.rowLeft}>
+              <View style={s.iconBg}>
+                <Text style={{ fontSize: 18 }}>⚖️</Text>
+              </View>
+              <View>
+                <Text style={s.rowLabel}>Unidad de peso</Text>
+                <Text style={s.rowSub}>Para registrar pesos en los ejercicios</Text>
+              </View>
+            </View>
+            {/* Toggle kg / lb */}
+            <View style={s.unitToggle}>
+              <TouchableOpacity
+                style={[s.unitBtn, weightUnit === 'kg' && s.unitBtnActive]}
+                onPress={() => handleWeightUnitChange('kg')}
+              >
+                <Text style={[s.unitBtnText, weightUnit === 'kg' && s.unitBtnTextActive]}>kg</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.unitBtn, weightUnit === 'lb' && s.unitBtnActive]}
+                onPress={() => handleWeightUnitChange('lb')}
+              >
+                <Text style={[s.unitBtnText, weightUnit === 'lb' && s.unitBtnTextActive]}>lb</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -127,6 +169,14 @@ function createStyles(colors) {
     },
     rowLabel:     { fontSize: 16, fontWeight: '600', color: colors.white },
     rowSub:       { fontSize: 12, color: colors.gray, marginTop: 2 },
+
+    // Toggle kg / lb
+    unitToggle:       { flexDirection: 'row', backgroundColor: colors.bgInput, borderRadius: RADIUS.full, padding: 3, borderWidth: 1, borderColor: colors.purpleDim },
+    unitBtn:          { paddingHorizontal: 14, paddingVertical: 6, borderRadius: RADIUS.full },
+    unitBtnActive:    { backgroundColor: colors.purple },
+    unitBtnText:      { fontSize: 14, fontWeight: '700', color: colors.gray },
+    unitBtnTextActive:{ color: '#fff' },
+
     infoRow:      {
       flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
       paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.purpleDim,
