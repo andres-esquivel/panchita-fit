@@ -133,6 +133,52 @@ function convertWeightValue(val, from, to) {
   return String(Math.round(result*10)/10);
 }
 
+// ─── T4: Skeleton loader ──────────────────────────────────
+function SkeletonRect({ width, height, style, colors: c }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(()=>{
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim,{toValue:1,duration:900,useNativeDriver:true}),
+        Animated.timing(anim,{toValue:0,duration:900,useNativeDriver:true}),
+      ])
+    ).start();
+    return ()=>anim.stopAnimation();
+  },[]);
+  const opacity = anim.interpolate({inputRange:[0,1],outputRange:[0.2,0.45]});
+  return (
+    <Animated.View style={[
+      { height, borderRadius:8, backgroundColor:c.grayLight, opacity },
+      typeof width==='string' ? { width } : { width },
+      style,
+    ]}/>
+  );
+}
+
+// ─── T3: Frases Panchita por días ──────────────────────────
+function getPanchitaRoutinePhrase(daysSince) {
+  if (daysSince===null) return '¿Primera vez con esta rutina? Veremos.';
+  if (daysSince===0) return 'Dos veces en un día. Qué dedicación. O qué aburrimiento.';
+  if (daysSince<3)  return 'Ya de vuelta. No esperaba menos.';
+  if (daysSince<=7) return 'Una semana. Justo a tiempo.';
+  return '¿Esta rutina? ¿En serio? ¿Cuándo fue la última vez...?';
+}
+
+function formatLogDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'});
+}
+
+function calcLogVolume(log) {
+  return (log.exercises||[]).reduce((total,ex)=>
+    total+(ex.sets||[]).reduce((s,st)=>{
+      const r=parseFloat(st.reps)||0, w=parseFloat(st.weight)||0;
+      return s+r*w;
+    },0)
+  ,0);
+}
+
 // ─── Componente principal ──────────────────────────────────
 export default function WorkoutScreen({ navigation }) {
   const { colors } = useTheme();
@@ -150,8 +196,8 @@ export default function WorkoutScreen({ navigation }) {
   const [weightUnit, setWeightUnit] = useState('kg');
   const prevWeightUnitRef = useRef('kg');
 
-  // Modo
-  const [mode, setMode] = useState('base');
+  // Modo — T2: default custom, "Mis rutinas" siempre muestra rutinas personalizadas
+  const [mode, setMode] = useState('custom');
 
   // Reacción Panchita
   const [panchitaReaction, setPanchitaReaction] = useState(false);
@@ -185,6 +231,26 @@ export default function WorkoutScreen({ navigation }) {
   const [recommendation, setRecommendation]   = useState(null);
   const [loadingRecommend, setLoadingRecommend] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // ── T1: chip menu ────────────────────────────────────────
+  const [showChipMenu, setShowChipMenu]       = useState(false);
+  const [chipMenuRoutine, setChipMenuRoutine] = useState(null);
+  const [showEditNameModal, setShowEditNameModal] = useState(false);
+  const [editNameRoutine, setEditNameRoutine] = useState(null);
+  const [editNameValue, setEditNameValue]     = useState('');
+  const [editNameSaving, setEditNameSaving]   = useState(false);
+
+  // ── T3: routine selection modal ───────────────────────
+  const [showRoutineModal, setShowRoutineModal]       = useState(false);
+  const [routineModalTarget, setRoutineModalTarget]   = useState(null);
+  const [routineModalDaysSince, setRoutineModalDaysSince] = useState(null);
+  const [showHistoryView, setShowHistoryView]         = useState(false);
+  const [historyLogs, setHistoryLogs]                 = useState([]);
+  const [historyDetailLog, setHistoryDetailLog]       = useState(null);
+
+  // ── T4: loading + fallback ────────────────────────────
+  const [initialLoading, setInitialLoading]   = useState(true);
+  const [usingLocalData, setUsingLocalData]   = useState(false);
 
   // Compartir rutina
   const [showShareModal, setShowShareModal]   = useState(false);
@@ -249,35 +315,38 @@ export default function WorkoutScreen({ navigation }) {
   },[log, selectedWorkout?.id, completed]);
 
   async function loadAll() {
-    // ── FASE 1: local inmediato (sin red, ~0ms) ──────────────
+    // ── FASE 1: local inmediato < 200ms ─────────────────────
+    setInitialLoading(true);
+    setUsingLocalData(false);
     const [localBase, localCustom] = await Promise.all([
       getLocalWorkouts(),
       getLocalCustomRoutines(),
     ]);
     setBaseWorkouts(localBase);
     setCustomRoutines(localCustom);
-    // Auto-seleccionar primera rutina disponible
-    if (!selectedWorkoutRef.current) {
-      const list = mode==='base' ? localBase : localCustom;
-      if (list.length>0) await selectWorkout(list[0]);
+    setInitialLoading(false); // skeleton desaparece
+    if (!selectedWorkoutRef.current && localCustom.length>0) {
+      await selectWorkout(localCustom[0]);
     }
 
-    // ── FASE 2: sincronizar con Firestore en background ──────
+    // ── FASE 2: Firestore con timeout 5s ────────────────────
     setSyncing(true);
     try {
-      const [remoteBase, remoteCustom] = await Promise.all([
-        getWorkouts(),
-        getCustomRoutines(),
-      ]);
+      const TIMEOUT = 5000;
+      const remotePromise = Promise.all([getWorkouts(), getCustomRoutines()]);
+      const timeoutPromise = new Promise((_,rej)=>
+        setTimeout(()=>rej(new Error('timeout')),TIMEOUT)
+      );
+      const [remoteBase, remoteCustom] = await Promise.race([remotePromise, timeoutPromise]);
       setBaseWorkouts(remoteBase);
       setCustomRoutines(remoteCustom);
-      // Si lo que llegó de Firestore difiere de lo local, actualizar selección
-      if (!selectedWorkoutRef.current) {
-        const list = mode==='base' ? remoteBase : remoteCustom;
-        if (list.length>0) await selectWorkout(list[0]);
+      setUsingLocalData(false);
+      if (!selectedWorkoutRef.current && remoteCustom.length>0) {
+        await selectWorkout(remoteCustom[0]);
       }
     } catch(e) {
       console.warn('Background sync failed:', e);
+      setUsingLocalData(true); // muestra indicador "Usando datos locales"
     } finally {
       setSyncing(false);
     }
@@ -683,6 +752,67 @@ export default function WorkoutScreen({ navigation }) {
     }
   }
 
+  // ─── T1: Chip menu ───────────────────────────────────────
+  function openChipMenu(routine) {
+    setChipMenuRoutine(routine);
+    setShowChipMenu(true);
+  }
+
+  function openEditNameModal(routine) {
+    setEditNameRoutine(routine);
+    setEditNameValue(routine.name||routine.day||'');
+    setEditNameSaving(false);
+    setShowEditNameModal(true);
+  }
+
+  async function saveRoutineName() {
+    if (!editNameRoutine) return;
+    const trimmed = editNameValue.trim();
+    if (!trimmed) return;
+    setEditNameSaving(true);
+    try {
+      const updated = { ...editNameRoutine, name:trimmed, day:trimmed };
+      await saveCustomRoutine(updated);
+      setCustomRoutines(prev=>prev.map(r=>r.id===updated.id?updated:r));
+      if (selectedWorkout?.id===updated.id) {
+        setSelectedWorkout(updated);
+        selectedWorkoutRef.current = updated;
+      }
+      setShowEditNameModal(false);
+    } catch(e) {
+      Alert.alert('Error','No se pudo guardar el nombre.');
+    } finally { setEditNameSaving(false); }
+  }
+
+  // ─── T3: Routine selection modal ─────────────────────────
+  async function openRoutineModal(routine) {
+    setRoutineModalTarget(routine);
+    setShowHistoryView(false);
+    setHistoryDetailLog(null);
+    setHistoryLogs([]);
+    setRoutineModalDaysSince(null);
+    setShowRoutineModal(true);
+    // Cargar historial en background
+    try {
+      const logs = await getLogs();
+      const routineLogs = logs
+        .filter(l=>l.workoutId===routine.id && l.completed)
+        .sort((a,b)=>b.date.localeCompare(a.date));
+      setHistoryLogs(routineLogs.slice(0,10));
+      if (routineLogs.length>0) {
+        const lastDate = routineLogs[0].date;
+        const today = new Date(); today.setHours(0,0,0,0);
+        const last  = new Date(lastDate); last.setHours(0,0,0,0);
+        setRoutineModalDaysSince(Math.round((today-last)/(1000*60*60*24)));
+      }
+    } catch { /* sin historial */ }
+  }
+
+  function startNewSession() {
+    setShowRoutineModal(false);
+    if (routineModalTarget) selectWorkout(routineModalTarget);
+  }
+
   // ─── Recomendación ────────────────────────────────────────
   async function openRecommendation() {
     setLoadingRecommend(true); setShowRecommend(true);
@@ -703,11 +833,10 @@ export default function WorkoutScreen({ navigation }) {
     setCompleted(false); setLastLog(null);
   }
 
-  const currentList = useMemo(()=>{
-    const list = mode==='base' ? baseWorkouts : customRoutines;
-    if (mode!=='custom') return list;
-    return [...list].sort((a,b)=>(b.isRecurring?1:0)-(a.isRecurring?1:0));
-  },[mode,baseWorkouts,customRoutines]);
+  // T2: "Mis rutinas" siempre muestra rutinas personalizadas del usuario
+  const currentList = useMemo(()=>
+    [...customRoutines].sort((a,b)=>(b.isRecurring?1:0)-(a.isRecurring?1:0))
+  ,[customRoutines]);
 
   // ─── Render ──────────────────────────────────────────────
   return (
@@ -917,17 +1046,159 @@ export default function WorkoutScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Header modo A/B — fila única */}
+      {/* ── T1: Modal menú chip ── */}
+      <Modal visible={showChipMenu} transparent animationType="slide" onRequestClose={()=>setShowChipMenu(false)}>
+        <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={()=>setShowChipMenu(false)}>
+          <View style={s.bottomSheet} onStartShouldSetResponder={()=>true}>
+            <View style={s.bottomSheetHandle}/>
+            <Text style={s.bottomSheetTitle} numberOfLines={1}>{chipMenuRoutine?.name||chipMenuRoutine?.day}</Text>
+            <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditNameModal(chipMenuRoutine),180); }}>
+              <Text style={s.bsOptionTxt}>✏️  Editar nombre</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openEditModal(chipMenuRoutine),180); }}>
+              <Text style={s.bsOptionTxt}>📝  Editar ejercicios</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); duplicateRoutine(chipMenuRoutine); }}>
+              <Text style={s.bsOptionTxt}>📋  Duplicar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.bsOption} onPress={()=>{ setShowChipMenu(false); setTimeout(()=>openShareRoutine(chipMenuRoutine),180); }}>
+              <Text style={s.bsOptionTxt}>🔗  Compartir</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.bsOption} onPress={()=>{
+              const r=chipMenuRoutine;
+              setShowChipMenu(false);
+              setTimeout(()=>Alert.alert('Eliminar rutina',`¿Eliminás "${r?.name||r?.day}"?`,[
+                {text:'Cancelar',style:'cancel'},
+                {text:'Eliminar',style:'destructive',onPress:()=>doDeleteRoutine(r)},
+              ]),200);
+            }}>
+              <Text style={[s.bsOptionTxt,{color:colors.danger}]}>🗑️  Eliminar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.bsOption,{borderTopWidth:1,borderTopColor:colors.purpleDim,marginTop:4}]} onPress={()=>setShowChipMenu(false)}>
+              <Text style={[s.bsOptionTxt,{color:colors.gray}]}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── T1: Modal editar nombre ── */}
+      <Modal visible={showEditNameModal} transparent animationType="slide" onRequestClose={()=>setShowEditNameModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalCard,{width:'88%',padding:20,alignItems:'stretch'}]}>
+            <Text style={[s.modalTitle,{marginBottom:14}]}>Editar nombre</Text>
+            <TextInput
+              style={s.createInput}
+              value={editNameValue}
+              onChangeText={setEditNameValue}
+              placeholder="Nombre de la rutina"
+              placeholderTextColor={colors.gray}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={saveRoutineName}
+            />
+            <View style={{flexDirection:'row',gap:10,marginTop:14}}>
+              <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purpleDim}]} onPress={()=>setShowEditNameModal(false)} disabled={editNameSaving}>
+                <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purple},editNameSaving&&{opacity:0.65}]} onPress={saveRoutineName} disabled={editNameSaving}>
+                {editNameSaving?<ActivityIndicator color="#fff" size="small"/>:<Text style={[s.createBtnTxt,{color:'#fff'}]}>Guardar</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── T3: Modal selección de rutina ── */}
+      <Modal visible={showRoutineModal} transparent animationType="slide" onRequestClose={()=>setShowRoutineModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalCard,{width:'92%',padding:20,alignItems:'stretch',maxHeight:'88%'}]}>
+            {!showHistoryView&&!historyDetailLog&&(
+              <>
+                <Text style={[s.modalTitle,{marginBottom:4}]} numberOfLines={2}>{routineModalTarget?.name||routineModalTarget?.day}</Text>
+                <Text style={[s.modalPhrase,{fontStyle:'italic',marginBottom:18}]}>
+                  "{getPanchitaRoutinePhrase(routineModalDaysSince)}"
+                </Text>
+                <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginBottom:10}]} onPress={startNewSession}>
+                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>⚡ Nueva sesión</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purpleDim,marginBottom:6}]} onPress={()=>setShowHistoryView(true)}>
+                  <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>📊 Ver historial</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={()=>setShowRoutineModal(false)} style={{alignItems:'center',paddingVertical:10}}>
+                  <Text style={{color:colors.gray,fontSize:13}}>Cancelar</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {showHistoryView&&!historyDetailLog&&(
+              <>
+                <TouchableOpacity onPress={()=>setShowHistoryView(false)} style={{marginBottom:10}}>
+                  <Text style={{color:colors.purple,fontSize:14}}>← Volver</Text>
+                </TouchableOpacity>
+                <Text style={[s.modalTitle,{marginBottom:12,textAlign:'left'}]}>Historial</Text>
+                {historyLogs.length===0?(
+                  <Text style={{color:colors.gray,textAlign:'center',paddingVertical:24}}>
+                    Sin sesiones completadas aún.
+                  </Text>
+                ):(
+                  <ScrollView style={{maxHeight:340}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                    {historyLogs.map((hl,i)=>(
+                      <TouchableOpacity key={i} style={[s.recExList,{marginBottom:8,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}]} onPress={()=>setHistoryDetailLog(hl)}>
+                        <View style={{flex:1}}>
+                          <Text style={{color:colors.white,fontWeight:'700',fontSize:14}}>{formatLogDate(hl.date)}</Text>
+                          <Text style={{color:colors.gray,fontSize:12,marginTop:2}}>
+                            {(hl.exercises||[]).length} ejercicios · {(hl.exercises||[]).reduce((n,ex)=>n+(ex.sets||[]).filter(st=>st.done).length,0)} sets completados
+                          </Text>
+                        </View>
+                        <Text style={{color:colors.purple,fontSize:18,paddingLeft:8}}>›</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+                <TouchableOpacity onPress={()=>setShowRoutineModal(false)} style={{alignItems:'center',paddingTop:12}}>
+                  <Text style={{color:colors.gray,fontSize:13}}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {historyDetailLog&&(
+              <>
+                <TouchableOpacity onPress={()=>setHistoryDetailLog(null)} style={{marginBottom:10}}>
+                  <Text style={{color:colors.purple,fontSize:14}}>← Volver al historial</Text>
+                </TouchableOpacity>
+                <Text style={[s.modalTitle,{marginBottom:4,textAlign:'left'}]}>{formatLogDate(historyDetailLog.date)}</Text>
+                <Text style={{color:colors.gray,fontSize:12,marginBottom:12}}>
+                  Volumen total: {Math.round(calcLogVolume(historyDetailLog)).toLocaleString()} kg·rep
+                </Text>
+                <ScrollView style={{maxHeight:300}} showsVerticalScrollIndicator={false}>
+                  {(historyDetailLog.exercises||[]).map((ex,i)=>(
+                    <View key={i} style={[s.recExList,{marginBottom:8}]}>
+                      <Text style={{color:colors.purpleLight,fontWeight:'700',marginBottom:4}}>{ex.name}</Text>
+                      {(ex.sets||[]).map((st,si)=>(
+                        <Text key={si} style={s.recExItem}>
+                          Set {si+1}: {st.reps||'—'} reps × {st.weight||'—'} {ex.unit||'kg'}{st.done?' ✓':''}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
+                <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginTop:12}]} onPress={startNewSession}>
+                  <Text style={[s.createBtnTxt,{color:colors.accentText||'#fff'}]}>⚡ Nueva sesión con esta rutina</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Header — T2: "Mis rutinas" fijo + "+ Nueva rutina" */}
       <View style={s.modeHeader}>
         <View style={s.modeTabs}>
-          <TouchableOpacity style={[s.modeTab,mode==='base'&&s.modeTabActive]} onPress={()=>switchMode('base')}>
-            <Text style={[s.modeTabText,mode==='base'&&s.modeTabTextActive]}>Mis rutinas</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.modeTab,mode==='custom'&&s.modeTabActive]} onPress={()=>switchMode('custom')}>
-            <Text style={[s.modeTabText,mode==='custom'&&s.modeTabTextActive]}>Personalizadas</Text>
+          <View style={[s.modeTab, s.modeTabActive]}>
+            <Text style={[s.modeTabText, s.modeTabTextActive]}>Mis rutinas</Text>
+          </View>
+          <TouchableOpacity style={s.modeTab} onPress={openCreateModal} activeOpacity={0.7}>
+            <Text style={[s.modeTabText, s.modeTabNewText]}>+ Nueva rutina</Text>
           </TouchableOpacity>
         </View>
-        {/* Botón recomendación como icono compacto */}
         <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
           <Text style={s.recommendBtnIcon}>✨</Text>
         </TouchableOpacity>
@@ -943,48 +1214,63 @@ export default function WorkoutScreen({ navigation }) {
           <Text style={s.activeName} numberOfLines={1}>{syncing ? 'Cargando...' : 'Seleccioná una rutina'}</Text>
         )}
         {syncing&&<Text style={s.syncHint}>↻ Sincronizando</Text>}
-        {!syncing&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
-        {!syncing&&autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓ Guardado</Text>}
+        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>📴 Local</Text>}
+        {!syncing&&!usingLocalData&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
+        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<Text style={s.autoSaveHint}>✓ Guardado</Text>}
         {!syncing&&autoSaveState==='error'&&<Text style={[s.autoSaveHint,{color:'#ef4444'}]}>⚠ Error</Text>}
       </View>
 
-      {/* Selector de rutinas */}
+      {/* Selector de rutinas — T1: ⋯ por chip, T3: tap → modal */}
       <View style={{flexDirection:'row',alignItems:'center'}}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.dayScroll}>
           {currentList.map(w=>(
-            <TouchableOpacity key={w.id} style={[s.dayChip,selectedWorkout?.id===w.id&&s.dayChipActive]} onPress={()=>selectWorkout(w)} onLongPress={()=>w.isCustom&&confirmRoutineAction(w)}>
-              <Text style={[s.dayChipText,selectedWorkout?.id===w.id&&s.dayChipTextActive]}>
-                {w.isRecurring?'📅 ':''}{w.day||w.name}
-              </Text>
-            </TouchableOpacity>
+            <View key={w.id} style={[s.dayChip, s.dayChipRow, selectedWorkout?.id===w.id&&s.dayChipActive]}>
+              <TouchableOpacity style={{flex:1}} onPress={()=>openRoutineModal(w)}>
+                <Text style={[s.dayChipText, selectedWorkout?.id===w.id&&s.dayChipTextActive]} numberOfLines={1}>
+                  {w.isRecurring?'📅 ':''}{w.day||w.name}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.chipMenuBtn} hitSlop={{top:8,bottom:8,left:4,right:8}}>
+                <Text style={[s.chipMenuTxt, selectedWorkout?.id===w.id&&{color:'rgba(255,255,255,0.75)'}]}>⋯</Text>
+              </TouchableOpacity>
+            </View>
           ))}
-          {currentList.length===0&&<Text style={[s.dayChipText,{paddingVertical:8,color:colors.gray}]}>{mode==='custom'?'Sin rutinas aún':'Sin rutinas base'}</Text>}
+          {currentList.length===0&&!initialLoading&&(
+            <Text style={[s.dayChipText,{paddingVertical:8,color:colors.gray}]}>Sin rutinas aún</Text>
+          )}
         </ScrollView>
-        {mode==='custom'&&(
-          <View style={s.addRoutineBtns}>
-            <TouchableOpacity style={s.addRoutineBtn} onPress={openImportModal} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-              <Text style={s.addRoutineImportTxt}>⬇</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.addRoutineBtn} onPress={openCreateModal}>
-              <Text style={s.addRoutineTxt}>+</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Botón importar */}
+        <View style={s.addRoutineBtns}>
+          <TouchableOpacity style={s.addRoutineBtn} onPress={openImportModal} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+            <Text style={s.addRoutineImportTxt}>⬇</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      {mode==='custom'&&currentList.length>0&&(
-        <Text style={s.longPressHint}>Mantené presionado para editar, duplicar o eliminar</Text>
-      )}
 
       {/* Lista de ejercicios */}
       <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-        {!log&&(
+        {/* T4: Skeleton mientras carga */}
+        {initialLoading&&(
+          <View>
+            {[0,1,2].map(i=>(
+              <View key={i} style={[s.exCard,{marginBottom:14}]}>
+                <SkeletonRect colors={colors} width="55%" height={18} style={{marginBottom:14}}/>
+                <SkeletonRect colors={colors} width="100%" height={52} style={{marginBottom:10}}/>
+                <SkeletonRect colors={colors} width="100%" height={52}/>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {!initialLoading&&!log&&(
           <View style={s.emptyState}>
-            {mode==='custom'?(
-              <><Panchita state="idle" size={90}/><Text style={s.emptyTitle}>Creá tu primera rutina</Text><Text style={s.emptyText}>Tocá + para agregar ejercicios personalizados.</Text><TouchableOpacity style={s.emptyBtn} onPress={openCreateModal}><Text style={s.emptyBtnText}>+ Crear rutina</Text></TouchableOpacity></>
-            ):(
-              <><Panchita state="idle" size={90}/><Text style={s.emptyTitle}>Seleccioná una rutina</Text></>
-            )}
+            <Panchita state="idle" size={90}/>
+            <Text style={s.emptyTitle}>Creá tu primera rutina</Text>
+            <Text style={s.emptyText}>Tocá "+ Nueva rutina" para agregar ejercicios personalizados.</Text>
+            <TouchableOpacity style={s.emptyBtn} onPress={openCreateModal}>
+              <Text style={s.emptyBtnText}>+ Crear rutina</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -1326,5 +1612,29 @@ function createStyles(colors) {
     recurringToggle: { backgroundColor:colors.bgCard, borderRadius:RADIUS.full, paddingHorizontal:12, paddingVertical:5, borderWidth:1, borderColor:colors.purpleDim },
     recurringToggleOn: { backgroundColor:colors.purple, borderColor:colors.purple },
     recurringToggleTxt: { fontSize:13, color:colors.gray, fontWeight:'700' },
+
+    // T2 — nuevo tab
+    modeTabNewText: { color:colors.purple, fontWeight:'700' },
+
+    // T1 — chip con botón ⋯
+    dayChipRow: { flexDirection:'row', alignItems:'center' },
+    chipMenuBtn: { paddingLeft:6, paddingRight:2, minWidth:28, minHeight:32, alignItems:'center', justifyContent:'center' },
+    chipMenuTxt: { fontSize:17, color:colors.gray, fontWeight:'900', lineHeight:20 },
+
+    // T1 — bottom sheet (menú chip)
+    bottomSheet: {
+      position:'absolute', bottom:0, left:0, right:0,
+      backgroundColor:colors.bgCard,
+      borderTopLeftRadius:RADIUS.xl, borderTopRightRadius:RADIUS.xl,
+      paddingBottom:32, paddingTop:12,
+      borderTopWidth:1, borderColor:colors.purpleDim,
+    },
+    bottomSheetHandle: { width:40, height:4, borderRadius:2, backgroundColor:colors.purpleDim, alignSelf:'center', marginBottom:14 },
+    bottomSheetTitle: { fontSize:16, fontWeight:'700', color:colors.grayLight, paddingHorizontal:20, marginBottom:8 },
+    bsOption: { paddingVertical:16, paddingHorizontal:20 },
+    bsOptionTxt: { fontSize:16, color:colors.white, fontWeight:'500' },
+
+    // T4 — indicador datos locales
+    localDataHint: { fontSize:11, color:colors.gray, marginLeft:8, opacity:0.8 },
   });
 }
