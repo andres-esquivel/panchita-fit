@@ -1,3 +1,19 @@
+export const BEAST_COLORS = {
+  bg:          '#0a0a0a',
+  bgCard:      '#1a1a1a',
+  bgInput:     '#111111',
+  purple:      '#39ff14',           // verde neón = accent principal
+  purpleLight: '#00ff88',           // verde esmeralda = accent secundario
+  purpleDim:   'rgba(57,255,20,0.14)',
+  lime:        '#39ff14',
+  limeDark:    '#00cc0a',
+  white:       '#ffffff',
+  gray:        '#888888',
+  grayLight:   '#aaaaaa',
+  danger:      '#ff4444',
+  teal:        '#00ff88',
+};
+
 export const DARK_COLORS = {
   bg:          '#0f0a1e',
   bgCard:      '#1a1130',

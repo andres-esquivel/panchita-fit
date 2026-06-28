@@ -14,7 +14,10 @@ import {
   getCustomRoutines, getLocalCustomRoutines,
   saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity, getWeightUnit,
+  shareRoutine, importSharedRoutine,
 } from '../storage';
+import { IconShare } from '../components/icons';
+import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
 
 const TODAY = new Date().toISOString().split('T')[0];
@@ -182,6 +185,20 @@ export default function WorkoutScreen({ navigation }) {
   const [recommendation, setRecommendation]   = useState(null);
   const [loadingRecommend, setLoadingRecommend] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // Compartir rutina
+  const [showShareModal, setShowShareModal]   = useState(false);
+  const [shareCode, setShareCode]             = useState('');
+  const [sharingLoading, setSharingLoading]   = useState(false);
+  const [shareRoutineTarget, setShareRoutineTarget] = useState(null);
+  const [codeCopied, setCodeCopied]           = useState(false);
+
+  // Importar rutina
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importCode, setImportCode]           = useState('');
+  const [importLoading, setImportLoading]     = useState(false);
+  const [importPreview, setImportPreview]     = useState(null);
+  const [importError, setImportError]         = useState('');
 
   const autoSaveTimerRef = useRef(null);
   const lastSavedLogRef  = useRef('');
@@ -435,7 +452,7 @@ export default function WorkoutScreen({ navigation }) {
   const removeExercise = useCallback((exIdx)=>{
     setLog(prev=>{
       const exercises = prev.exercises.filter((_,ei)=>ei!==exIdx);
-      if (exercises.length===0) return prev; // no eliminar si es el último
+      // Permitir dejar lista vacía — el estado vacío se renderiza en la UI
       return { ...prev, exercises };
     });
   },[]);
@@ -546,10 +563,86 @@ export default function WorkoutScreen({ navigation }) {
     } finally { setEditingRoutineSaving(false); }
   }
 
+  // ─── Compartir rutina ─────────────────────────────────────
+  async function openShareRoutine(routine) {
+    setShareRoutineTarget(routine);
+    setShareCode('');
+    setCodeCopied(false);
+    setSharingLoading(true);
+    setShowShareModal(true);
+    try {
+      const code = await shareRoutine(routine);
+      setShareCode(code);
+    } catch(e) {
+      setShowShareModal(false);
+      Alert.alert('Error', 'No se pudo generar el código. Revisá tu conexión.');
+    } finally {
+      setSharingLoading(false);
+    }
+  }
+
+  async function copyShareCode() {
+    if (!shareCode) return;
+    try {
+      await Share.share({ message: `Mi rutina en PanchitaFit: ${shareCode}` });
+      setCodeCopied(true);
+      setTimeout(()=>setCodeCopied(false), 3000);
+    } catch {
+      // usuario canceló Share
+    }
+  }
+
+  // ─── Importar rutina ──────────────────────────────────────
+  function openImportModal() {
+    setImportCode('');
+    setImportPreview(null);
+    setImportError('');
+    setImportLoading(false);
+    setShowImportModal(true);
+  }
+
+  async function handleLookupCode() {
+    const clean = importCode.trim().toUpperCase();
+    if (clean.length < 6) { setImportError('Ingresá los 6 caracteres del código.'); return; }
+    setImportLoading(true);
+    setImportError('');
+    setImportPreview(null);
+    try {
+      const preview = await importSharedRoutine(clean);
+      setImportPreview(preview);
+    } catch(e) {
+      setImportError(e.message || 'No se pudo encontrar el código.');
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!importPreview) return;
+    // Evitar nombre duplicado
+    const existingNames = customRoutines.map(r=>(r.name||r.day||'').toLowerCase());
+    let nombre = importPreview.nombre;
+    if (existingNames.includes(nombre.toLowerCase())) nombre = `${nombre} (importada)`;
+
+    const routine = {
+      id: `custom_${Date.now()}`,
+      name: nombre, day: nombre,
+      exercises: importPreview.ejercicios,
+      isCustom: true, isRecurring: false,
+      createdAt: new Date().toISOString(),
+    };
+    await saveCustomRoutine(routine);
+    setCustomRoutines(prev=>[routine,...prev]);
+    setShowImportModal(false);
+    setMode('custom');
+    selectWorkout(routine).catch(()=>{});
+  }
+
   // ─── Duplicar / eliminar rutina ───────────────────────────
   function confirmRoutineAction(routine) {
     Alert.alert(routine.name||routine.day, '¿Qué querés hacer?', [
       { text:'Cancelar', style:'cancel' },
+      { text:'Compartir 🔗', onPress:()=>openShareRoutine(routine) },
       { text:'Editar ejercicios', onPress:()=>openEditModal(routine) },
       { text:'Duplicar', onPress:()=>duplicateRoutine(routine) },
       { text:'Eliminar', style:'destructive', onPress:()=>doDeleteRoutine(routine) },
@@ -724,6 +817,88 @@ export default function WorkoutScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Modal compartir rutina */}
+      <Modal visible={showShareModal} transparent animationType="fade" onRequestClose={()=>setShowShareModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalCard,{width:'88%'}]}>
+            <Panchita state={sharingLoading?'idle':'happy'} size={90}/>
+            <Text style={s.modalTitle}>Compartir rutina</Text>
+            {sharingLoading?(
+              <ActivityIndicator color={colors.purpleLight} size="large"/>
+            ):shareCode?(
+              <>
+                <Text style={s.shareSubtitle}>{shareRoutineTarget?.name||shareRoutineTarget?.day}</Text>
+                <TouchableOpacity style={s.shareCodeBox} onPress={copyShareCode} activeOpacity={0.7}>
+                  <Text style={s.shareCodeText}>{shareCode}</Text>
+                  <Text style={s.shareCodeHint}>{codeCopied?'✓ Compartido!':'Tap para compartir'}</Text>
+                </TouchableOpacity>
+                <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás. O al menos que tenés una rutina."</Text>
+                <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
+                <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
+                  <Text style={s.modalBtnText}>{codeCopied?'✓ Compartido!':'📤 Compartir código'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={()=>setShowShareModal(false)} style={{marginTop:10}}>
+                  <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            ):null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal importar rutina */}
+      <Modal visible={showImportModal} transparent animationType="slide" onRequestClose={()=>setShowImportModal(false)}>
+        <View style={s.modalOverlay}>
+          <View style={[s.modalCard,{width:'92%',padding:22,alignItems:'stretch'}]}>
+            <Text style={[s.modalTitle,{marginBottom:6}]}>Importar rutina</Text>
+            <Text style={[s.modalPhrase,{marginBottom:16}]}>Ingresá el código de 6 caracteres</Text>
+
+            <TextInput
+              style={[s.createInput,{textAlign:'center',fontSize:22,fontWeight:'800',letterSpacing:4,marginBottom:12}]}
+              value={importCode}
+              onChangeText={v=>{ setImportCode(v.toUpperCase().replace(/[^A-Z0-9]/g,'')); setImportError(''); setImportPreview(null); }}
+              placeholder="ABC123"
+              placeholderTextColor={colors.gray}
+              maxLength={6}
+              autoCapitalize="characters"
+              keyboardType="default"
+            />
+
+            {importError?(
+              <Text style={[s.createError,{marginBottom:10}]}>{importError}</Text>
+            ):null}
+
+            {/* Preview */}
+            {importPreview&&(
+              <View style={[s.recExList,{marginBottom:14}]}>
+                <Text style={{color:colors.purpleLight,fontWeight:'700',marginBottom:6,fontSize:14}}>{importPreview.nombre}</Text>
+                {importPreview.ejercicios.map((ex,i)=><Text key={i} style={s.recExItem}>· {ex}</Text>)}
+              </View>
+            )}
+
+            <View style={{flexDirection:'row',gap:10}}>
+              <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purpleDim}]} onPress={()=>setShowImportModal(false)}>
+                <Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Cancelar</Text>
+              </TouchableOpacity>
+              {!importPreview?(
+                <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purple},importLoading&&{opacity:0.65}]} onPress={handleLookupCode} disabled={importLoading}>
+                  {importLoading?<ActivityIndicator color="#fff" size="small"/>:<Text style={[s.createBtnTxt,{color:'#fff'}]}>Buscar</Text>}
+                </TouchableOpacity>
+              ):(
+                <TouchableOpacity style={[s.createBtn,{flex:1,backgroundColor:colors.purple}]} onPress={confirmImport}>
+                  <Text style={[s.createBtnTxt,{color:'#fff'}]}>Importar ✓</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {importPreview&&(
+              <Text style={{color:colors.gray,fontSize:12,textAlign:'center',marginTop:10,fontStyle:'italic'}}>
+                "Rutina importada. Ahora a ver si la usás."
+              </Text>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Header modo A/B — fila única */}
       <View style={s.modeHeader}>
         <View style={s.modeTabs}>
@@ -768,9 +943,14 @@ export default function WorkoutScreen({ navigation }) {
           {currentList.length===0&&<Text style={[s.dayChipText,{paddingVertical:8,color:colors.gray}]}>{mode==='custom'?'Sin rutinas aún':'Sin rutinas base'}</Text>}
         </ScrollView>
         {mode==='custom'&&(
-          <TouchableOpacity style={s.addRoutineBtn} onPress={openCreateModal}>
-            <Text style={s.addRoutineTxt}>+</Text>
-          </TouchableOpacity>
+          <View style={s.addRoutineBtns}>
+            <TouchableOpacity style={s.addRoutineBtn} onPress={openImportModal} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+              <Text style={s.addRoutineImportTxt}>⬇</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.addRoutineBtn} onPress={openCreateModal}>
+              <Text style={s.addRoutineTxt}>+</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
       {mode==='custom'&&currentList.length>0&&(
@@ -793,6 +973,17 @@ export default function WorkoutScreen({ navigation }) {
         {log&&completed&&(
           <View style={s.completedBanner}>
             <Text style={s.completedText}>Sesión completada hoy ✓</Text>
+          </View>
+        )}
+
+        {/* Estado vacío — todos los ejercicios eliminados */}
+        {log&&(log.exercises||[]).length===0&&(
+          <View style={s.emptyExState}>
+            <Text style={s.emptyExTitle}>Sin ejercicios</Text>
+            <Text style={s.emptyExText}>Eliminaste todos los ejercicios de esta sesión.</Text>
+            <TouchableOpacity style={s.emptyExBtn} onPress={()=>selectWorkout(selectedWorkout)}>
+              <Text style={s.emptyExBtnText}>Recargar rutina</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -886,19 +1077,25 @@ export default function WorkoutScreen({ navigation }) {
 
             {/* Acciones del ejercicio */}
             <View style={s.exFooter}>
-              <TouchableOpacity style={s.addSetBtn} onPress={()=>addSet(exIdx)}>
+              <TouchableOpacity style={s.addSetBtn} onPress={()=>addSet(exIdx)} hitSlop={{top:10,bottom:10,left:10,right:10}}>
                 <Text style={s.addSetTxt}>+ Set</Text>
               </TouchableOpacity>
-              {(log?.exercises||[]).length>1&&(
-                <TouchableOpacity onPress={()=>{
-                  Alert.alert('Eliminar ejercicio',`¿Eliminar "${ex.name}" de esta sesión?`,[
-                    {text:'Cancelar',style:'cancel'},
-                    {text:'Eliminar',style:'destructive',onPress:()=>removeExercise(exIdx)},
-                  ]);
-                }} style={s.removeExBtn}>
-                  <Text style={s.removeExTxt}>Quitar ejercicio</Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={s.removeExBtn}
+                hitSlop={{top:12,bottom:12,left:12,right:12}}
+                onPress={()=>{
+                  Alert.alert(
+                    'Quitar ejercicio',
+                    `¿Eliminar "${ex.name}" de esta sesión?`,
+                    [
+                      { text:'Cancelar', style:'cancel' },
+                      { text:'Eliminar', style:'destructive', onPress:()=>removeExercise(exIdx) },
+                    ]
+                  );
+                }}
+              >
+                <Text style={s.removeExTxt}>Quitar ✕</Text>
+              </TouchableOpacity>
             </View>
           </View>
         ))}
@@ -957,8 +1154,18 @@ function createStyles(colors) {
     dayChipActive: { backgroundColor:colors.purple, borderColor:colors.purple },
     dayChipText: { fontSize:13, color:colors.gray, fontWeight:'500' },
     dayChipTextActive: { color:'#fff' },
-    addRoutineBtn: { width:34, height:34, borderRadius:17, backgroundColor:colors.purple, alignItems:'center', justifyContent:'center', marginRight:14 },
+    addRoutineBtns: { flexDirection:'row', alignItems:'center', gap:6, marginRight:10 },
+    addRoutineBtn: { width:34, height:34, borderRadius:17, backgroundColor:colors.purple, alignItems:'center', justifyContent:'center' },
     addRoutineTxt: { color:'#fff', fontSize:22, fontWeight:'300', lineHeight:28 },
+    addRoutineImportTxt: { color:'#fff', fontSize:16, fontWeight:'700', lineHeight:22 },
+
+    // ── Modales de compartir / importar ──
+    shareSubtitle: { fontSize:14, color:colors.grayLight, marginTop:2, marginBottom:16, textAlign:'center' },
+    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:20, paddingHorizontal:32, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
+    shareCodeText: { fontSize:36, fontWeight:'900', color:colors.purple, letterSpacing:6 },
+    shareCodeHint: { fontSize:12, color:colors.gray, marginTop:6 },
+    sharePanchitaPhrase: { fontSize:13, color:colors.gray, fontStyle:'italic', textAlign:'center', paddingHorizontal:16, marginBottom:8 },
+    shareExpiry: { fontSize:12, color:colors.gray, textAlign:'center', marginBottom:16 },
     longPressHint: { fontSize:10, color:colors.gray, textAlign:'center', marginBottom:2 },
 
     // Scroll
@@ -1022,11 +1229,18 @@ function createStyles(colors) {
     setPrevText: { fontSize:12, color:colors.gray, marginTop:8, fontStyle:'italic' },
 
     // Footer ejercicio
-    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:6, paddingTop:8, borderTopWidth:1, borderTopColor:colors.purpleDim },
-    addSetBtn: { paddingVertical:6, paddingHorizontal:10 },
+    exFooter: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:8, paddingTop:10, borderTopWidth:1, borderTopColor:colors.purpleDim },
+    addSetBtn: { paddingVertical:10, paddingHorizontal:12, minHeight:44, justifyContent:'center' },
     addSetTxt: { color:colors.purpleLight, fontSize:15, fontWeight:'700' },
-    removeExBtn: { paddingVertical:6, paddingHorizontal:10 },
-    removeExTxt: { color:colors.gray, fontSize:12, textDecorationLine:'underline' },
+    removeExBtn: { paddingVertical:10, paddingHorizontal:12, minHeight:44, justifyContent:'center', borderRadius:RADIUS.sm, backgroundColor:colors.bgInput },
+    removeExTxt: { color:'#ef4444', fontSize:13, fontWeight:'600' },
+
+    // Estado vacío de ejercicios
+    emptyExState: { alignItems:'center', paddingVertical:36, paddingHorizontal:24 },
+    emptyExTitle: { fontSize:17, fontWeight:'700', color:colors.white, marginBottom:6 },
+    emptyExText:  { fontSize:14, color:colors.gray, textAlign:'center', marginBottom:20, lineHeight:20 },
+    emptyExBtn:   { backgroundColor:colors.purple, borderRadius:RADIUS.full, paddingVertical:12, paddingHorizontal:28 },
+    emptyExBtnText:{ color:'#fff', fontWeight:'700', fontSize:15 },
 
     // Acciones principales
     actions: { gap:12, marginTop:8 },

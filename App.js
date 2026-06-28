@@ -39,6 +39,7 @@ function AppNavigator() {
           },
           tabBarActiveTintColor:   colors.purpleLight,
           tabBarInactiveTintColor: colors.gray,
+          tabBarHideOnKeyboard: true,
           tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         }}
       >
@@ -107,7 +108,7 @@ function tabIconStyle() {
   return { width: 44, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' };
 }
 function tabIconActiveStyle(colors) {
-  return { backgroundColor: colors.purpleDim };
+  return { backgroundColor: colors.purpleDim, borderRadius: 16 };
 }
 
 function RootApp() {

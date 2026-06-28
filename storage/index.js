@@ -428,6 +428,70 @@ export async function saveWeightUnit(unit) {
   }
 }
 
+// ─── Compartir rutinas con código ─────────────────────────
+// Genera código de 6 chars alfanumérico sin ambiguos (0/O, 1/I/l)
+function generateShareCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function toStringArray(exercises) {
+  if (!exercises) return [];
+  if (typeof exercises === 'string') return exercises.split(',').map(s => s.trim()).filter(Boolean);
+  const arr = Array.isArray(exercises) ? exercises : Object.values(exercises);
+  return arr.map(ex => {
+    if (typeof ex === 'string') return ex.trim();
+    if (ex?.name) return String(ex.name).trim();
+    return null;
+  }).filter(Boolean);
+}
+
+export async function shareRoutine(routine) {
+  // Buscar código único (máx 5 intentos para evitar colisiones)
+  let code;
+  for (let i = 0; i < 5; i++) {
+    code = generateShareCode();
+    const ref = doc(db, 'sharedRoutines', code);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) break;
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 días
+
+  await setDoc(doc(db, 'sharedRoutines', code), {
+    routineData: {
+      nombre: (routine.name || routine.day || 'Mi rutina').trim(),
+      ejercicios: toStringArray(routine.exercises),
+    },
+    createdBy: uid(),
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  });
+
+  return code;
+}
+
+export async function importSharedRoutine(code) {
+  const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
+
+  const snap = await withTimeout(getDoc(doc(db, 'sharedRoutines', clean)), 8000, 'importRoutine');
+  if (!snap.exists()) throw new Error('Código no encontrado. Verificá que esté bien escrito.');
+
+  const data = snap.data();
+  if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
+    throw new Error('Este código expiró. Pedile uno nuevo al creador.');
+  }
+
+  return {
+    nombre: data.routineData?.nombre || 'Rutina importada',
+    ejercicios: data.routineData?.ejercicios || [],
+  };
+}
+
 // ─── Limpiar todo (debug) ──────────────────────────────────
 export async function clearAll() {
   await AsyncStorage.removeItem('panchita_onboarded');
