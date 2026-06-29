@@ -1,10 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  doc, collection, getDoc, getDocFromServer, setDoc, getDocs, deleteDoc, writeBatch,
+  doc, collection, getDoc, setDoc, getDocs, deleteDoc, writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
-const FIREBASE_PROJECT_ID = 'panchita-gym';
 
 // ─── Helpers ──────────────────────────────────────────────
 function uid() {
@@ -23,101 +22,6 @@ function withTimeout(promise, ms = 6000, label = 'operacion') {
       setTimeout(() => reject(new Error(`${label} timeout`)), ms);
     }),
   ]);
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function firestoreDocUrl(collectionName, docId) {
-  return `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collectionName}/${docId}`;
-}
-
-async function authedFetchWithTimeout(url, options = {}, ms = 12000, label = 'fetch') {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    const token = await auth.currentUser?.getIdToken?.();
-    if (!token) throw new Error('No user authenticated');
-    const res = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-    });
-    return res;
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`${label} timeout`);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function routineToFirestoreFields(code, routine, now, expiresAt) {
-  return {
-    code: { stringValue: code },
-    public: { booleanValue: true },
-    createdBy: { stringValue: uid() },
-    createdAt: { stringValue: now.toISOString() },
-    expiresAt: { stringValue: expiresAt.toISOString() },
-    routineData: {
-      mapValue: {
-        fields: {
-          nombre: { stringValue: (routine.name || routine.day || 'Mi rutina').trim() },
-          ejercicios: {
-            arrayValue: {
-              values: toStringArray(routine.exercises).map(ex => ({ stringValue: ex })),
-            },
-          },
-        },
-      },
-    },
-  };
-}
-
-function firestoreFieldsToRoutine(fields = {}) {
-  const dataFields = fields.routineData?.mapValue?.fields || {};
-  const ejercicios = dataFields.ejercicios?.arrayValue?.values || [];
-  return {
-    nombre: dataFields.nombre?.stringValue || 'Rutina importada',
-    ejercicios: ejercicios.map(v => v.stringValue).filter(Boolean),
-    expiresAt: fields.expiresAt?.stringValue || null,
-  };
-}
-
-async function getSharedRoutineDocRest(code) {
-  const res = await authedFetchWithTimeout(firestoreDocUrl('sharedRoutines', code), { method: 'GET' }, 12000, 'sharedRoutineGet');
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const err = new Error(body || `Firestore REST GET ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}
-
-async function setSharedRoutineDocRest(code, routine) {
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const payload = { fields: routineToFirestoreFields(code, routine, now, expiresAt) };
-  const res = await authedFetchWithTimeout(
-    firestoreDocUrl('sharedRoutines', code),
-    { method: 'PATCH', body: JSON.stringify(payload) },
-    15000,
-    'sharedRoutineSet'
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const err = new Error(body || `Firestore REST PATCH ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
 }
 
 async function getAll(colPath) {
@@ -634,14 +538,6 @@ export async function saveWeekSchedule(schedule) {
 }
 
 // ─── Compartir rutinas con código ─────────────────────────
-// Genera código de 6 chars alfanumérico sin ambiguos (0/O, 1/I/l)
-function generateShareCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
-}
-
 function toStringArray(exercises) {
   if (!exercises) return [];
   if (typeof exercises === 'string') return exercises.split(',').map(s => s.trim()).filter(Boolean);
@@ -653,107 +549,125 @@ function toStringArray(exercises) {
   }).filter(Boolean);
 }
 
-export async function shareRoutine(routine) {
-  let code = String(routine._presetCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  try {
-    if (code && code.length !== 6) code = '';
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-    if (!code) {
-      // REST evita cuelgues de WebChannel/IndexedDB del SDK en Safari/PWA.
-      // La colisión es muy improbable, pero revisamos servidor antes de usarlo.
-      for (let i = 0; i < 6; i++) {
-        const tryCode = generateShareCode();
-        const existing = await getSharedRoutineDocRest(tryCode);
-        if (!existing) { code = tryCode; break; }
+function utf8Bytes(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let cp = str.charCodeAt(i);
+    if (cp >= 0xd800 && cp <= 0xdbff && i + 1 < str.length) {
+      const next = str.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        cp = 0x10000 + ((cp - 0xd800) << 10) + (next - 0xdc00);
+        i++;
       }
-      if (!code) code = generateShareCode();
     }
-
-    await setSharedRoutineDocRest(code, routine);
-
-    // Verificación dura desde REST: si devolvemos código, existe en servidor.
-    const verify = await getSharedRoutineDocRest(code);
-    if (!verify) throw new Error('No se pudo publicar el código. Intentá de nuevo.');
-
-    return code;
-  } catch (error) {
-    console.warn('shareRoutine full error:', {
-      status: error?.status,
-      code: error?.code,
-      message: error?.message,
-      name: error?.name,
-      stack: error?.stack,
-    });
-
-    const msg = String(error?.message || '').toLowerCase();
-    if (error?.status === 403 || error?.code === 'permission-denied' || msg.includes('permission')) {
-      throw new Error('Firestore bloqueó compartir rutinas. Revisá reglas de sharedRoutines.');
-    }
-    if (error?.code === 'unavailable' || msg.includes('offline') || msg.includes('network')) {
-      throw new Error('Sin conexión. Necesitás internet para compartir una rutina.');
-    }
-    if (msg.includes('timeout')) {
-      throw new Error('La conexión tardó demasiado publicando el código. Probá otra vez con buena señal.');
-    }
-    throw new Error(error?.message || 'No se pudo publicar el código. Intentá de nuevo.');
+    if (cp <= 0x7f) bytes.push(cp);
+    else if (cp <= 0x7ff) bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    else if (cp <= 0xffff) bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    else bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
   }
+  return bytes;
+}
+
+function utf8String(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length;) {
+    const b = bytes[i++];
+    let cp;
+    if (b < 0x80) cp = b;
+    else if (b < 0xe0) cp = ((b & 0x1f) << 6) | (bytes[i++] & 0x3f);
+    else if (b < 0xf0) cp = ((b & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+    else cp = ((b & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+    if (cp <= 0xffff) out += String.fromCharCode(cp);
+    else {
+      cp -= 0x10000;
+      out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+    }
+  }
+  return out;
+}
+
+function base64UrlEncode(str) {
+  const bytes = utf8Bytes(str);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i], b = bytes[i + 1], c = bytes[i + 2];
+    out += B64[a >> 2];
+    out += B64[((a & 3) << 4) | ((b || 0) >> 4)];
+    out += i + 1 < bytes.length ? B64[((b & 15) << 2) | ((c || 0) >> 6)] : '=';
+    out += i + 2 < bytes.length ? B64[c & 63] : '=';
+  }
+  return out.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(encoded) {
+  const clean = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = clean + '='.repeat((4 - clean.length % 4) % 4);
+  const bytes = [];
+  for (let i = 0; i < padded.length; i += 4) {
+    const c1 = B64.indexOf(padded[i]);
+    const c2 = B64.indexOf(padded[i + 1]);
+    const c3 = padded[i + 2] === '=' ? -1 : B64.indexOf(padded[i + 2]);
+    const c4 = padded[i + 3] === '=' ? -1 : B64.indexOf(padded[i + 3]);
+    if (c1 < 0 || c2 < 0 || (c3 < 0 && padded[i + 2] !== '=') || (c4 < 0 && padded[i + 3] !== '=')) {
+      throw new Error('base64 inválido');
+    }
+    bytes.push((c1 << 2) | (c2 >> 4));
+    if (c3 >= 0) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
+    if (c4 >= 0) bytes.push(((c3 & 3) << 6) | c4);
+  }
+  return utf8String(bytes);
+}
+
+function encodeRoutinePayload(routine) {
+  const payload = {
+    v: 1,
+    n: (routine.name || routine.day || 'Mi rutina').trim(),
+    e: toStringArray(routine.exercises),
+  };
+  return `PF1.${base64UrlEncode(JSON.stringify(payload))}`;
+}
+
+function decodeRoutinePayload(rawCode) {
+  const match = String(rawCode || '').trim().match(/PF1\.[A-Za-z0-9_-]+/);
+  if (!match) return null;
+  const payload = JSON.parse(base64UrlDecode(match[0].slice(4)));
+  if (!payload || payload.v !== 1 || !Array.isArray(payload.e)) {
+    throw new Error('El código de rutina no tiene un formato válido.');
+  }
+  return {
+    nombre: String(payload.n || 'Rutina importada').trim() || 'Rutina importada',
+    ejercicios: payload.e.map(ex => String(ex || '').trim()).filter(Boolean),
+  };
+}
+
+export async function shareRoutine(routine) {
+  // Compartir sin backend: el código contiene la rutina codificada.
+  // Así no dependemos de reglas de Firestore, caché ni conexión del receptor.
+  const code = encodeRoutinePayload(routine);
+  if (!decodeRoutinePayload(code)) {
+    throw new Error('No se pudo generar el código de rutina.');
+  }
+  return code;
 }
 
 export async function importSharedRoutine(code) {
+  try {
+    const selfContained = decodeRoutinePayload(code);
+    if (selfContained) return selfContained;
+  } catch (error) {
+    console.warn('decodeRoutinePayload error:', error);
+    throw new Error('El código PF1 está incompleto o se copió mal. Compartilo de nuevo desde la app.');
+  }
+
   const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
-
-  let lastError = null;
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const docJson = await getSharedRoutineDocRest(clean);
-      if (!docJson) {
-        if (attempt < 2) {
-          await sleep(700 + attempt * 900);
-          continue;
-        }
-        throw new Error('Ese código no existe o no terminó de publicarse. Pedile a la otra persona generar/compartir el código otra vez.');
-      }
-
-      const data = firestoreFieldsToRoutine(docJson.fields || {});
-      if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
-        throw new Error('Este código expiró. Pedile uno nuevo al creador.');
-      }
-
-      return {
-        nombre: data.nombre,
-        ejercicios: data.ejercicios,
-      };
-    } catch (error) {
-      lastError = error;
-      const msg = String(error?.message || '').toLowerCase();
-      if (msg.includes('ese código') || msg.includes('expiró')) throw error;
-
-      console.warn('importSharedRoutine full error:', {
-        attempt,
-        status: error?.status,
-        code: error?.code,
-        message: error?.message,
-        name: error?.name,
-        stack: error?.stack,
-      });
-
-      if (error?.status === 403 || error?.code === 'permission-denied' || msg.includes('permission')) {
-        throw new Error('No tenés permiso para leer rutinas compartidas. Revisá las reglas de Firestore.');
-      }
-      if (error?.code === 'unavailable' || msg.includes('offline') || msg.includes('network')) {
-        throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
-      }
-      if (attempt < 2) await sleep(700 + attempt * 900);
-    }
+  if (clean.length === 6) {
+    throw new Error('Ese código corto era de la versión anterior. Compartí la rutina de nuevo para generar un código PF1 actualizado.');
   }
 
-  if (String(lastError?.message || '').toLowerCase().includes('timeout')) {
-    throw new Error('La conexión tardó demasiado buscando el código. Probá otra vez en unos segundos.');
-  }
-  throw new Error('No se encontró el código. Verificá que esté bien escrito.');
+  throw new Error('Pegá el código completo que empieza con PF1.');
 }
 
 // ─── Limpiar todo (debug) ──────────────────────────────────

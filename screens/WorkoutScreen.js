@@ -843,7 +843,8 @@ export default function WorkoutScreen({ navigation, route }) {
   async function copyShareCode() {
     if (!shareCode) return;
     try {
-      await Share.share({ message: `Mi rutina en PanchitaFit: ${shareCode}` });
+      await Share.share({ message: `Mi rutina en PanchitaFit:
+${shareCode}` });
       setCodeCopied(true);
       setTimeout(()=>setCodeCopied(false), 3000);
     } catch {
@@ -861,8 +862,8 @@ export default function WorkoutScreen({ navigation, route }) {
   }
 
   async function handleLookupCode() {
-    const clean = importCode.trim().toUpperCase();
-    if (clean.length < 6) { setImportError('Ingresá los 6 caracteres del código.'); return; }
+    const clean = importCode.trim();
+    if (!clean) { setImportError('Pegá el código completo que te compartieron.'); return; }
     setImportLoading(true);
     setImportError('');
     setImportPreview(null);
@@ -1284,17 +1285,19 @@ export default function WorkoutScreen({ navigation, route }) {
         <View style={s.modalOverlay}>
           <View style={[s.modalCard,{width:'92%',padding:22,alignItems:'stretch'}]}>
             <Text style={[s.modalTitle,{marginBottom:6}]}>Importar rutina</Text>
-            <Text style={[s.modalPhrase,{marginBottom:16}]}>Ingresá el código de 6 caracteres</Text>
+            <Text style={[s.modalPhrase,{marginBottom:16}]}>Pegá el código completo que te compartieron</Text>
 
             <TextInput
-              style={[s.createInput,{textAlign:'center',fontSize:22,fontWeight:'800',letterSpacing:4,marginBottom:12}]}
+              style={[s.createInput,{textAlign:'center',fontSize:14,fontWeight:'800',letterSpacing:0,marginBottom:12,minHeight:96}]}
               value={importCode}
-              onChangeText={v=>{ setImportCode(v.toUpperCase().replace(/[^A-Z0-9]/g,'')); setImportError(''); setImportPreview(null); }}
-              placeholder="ABC123"
+              onChangeText={v=>{ setImportCode(v.trim()); setImportError(''); setImportPreview(null); }}
+              placeholder="PF1..."
               placeholderTextColor={colors.gray}
-              maxLength={6}
-              autoCapitalize="characters"
+              multiline
+              autoCapitalize="none"
               keyboardType="default"
+              autoCorrect={false}
+              autoComplete="off"
             />
 
             {importError?(
@@ -1923,8 +1926,8 @@ function createStyles(colors) {
 
     // ── Modales de compartir / importar ──
     shareSubtitle: { fontSize:14, color:colors.grayLight, marginTop:2, marginBottom:16, textAlign:'center' },
-    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:20, paddingHorizontal:32, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
-    shareCodeText: { fontSize:36, fontWeight:'900', color:colors.purple, letterSpacing:6 },
+    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:14, paddingHorizontal:14, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
+    shareCodeText: { fontSize:11, lineHeight:16, fontWeight:'800', color:colors.purpleLight, letterSpacing:0.2, textAlign:'center' },
     shareCodeHint: { fontSize:12, color:colors.gray, marginTop:6 },
     sharePanchitaPhrase: { fontSize:13, color:colors.gray, fontStyle:'italic', textAlign:'center', paddingHorizontal:16, marginBottom:8 },
     shareExpiry: { fontSize:12, color:colors.gray, textAlign:'center', marginBottom:16 },

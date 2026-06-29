@@ -502,7 +502,8 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   async function copyShareCode() {
     if (!shareCode) return;
     try {
-      await Share.share({ message:`Mi rutina en PanchitaFit: ${shareCode}` });
+      await Share.share({ message:`Mi rutina en PanchitaFit:
+${shareCode}` });
       setCodeCopied(true);
       setTimeout(()=>setCodeCopied(false),3000);
     } catch {}
@@ -975,8 +976,8 @@ function createStyles(colors) {
 
     // Share
     shareSubtitle: { fontSize:14, color:colors.grayLight, marginTop:2, marginBottom:16, textAlign:'center' },
-    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:20, paddingHorizontal:32, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
-    shareCodeText: { fontSize:36, fontWeight:'900', color:colors.purple, letterSpacing:6 },
+    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:14, paddingHorizontal:14, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
+    shareCodeText: { fontSize:11, lineHeight:16, fontWeight:'800', color:colors.purpleLight, letterSpacing:0.2, textAlign:'center' },
     shareCodeHint: { fontSize:12, color:colors.gray, marginTop:6 },
     sharePanchitaPhrase: { fontSize:13, color:colors.gray, fontStyle:'italic', textAlign:'center', paddingHorizontal:16, marginBottom:8 },
     shareExpiry: { fontSize:12, color:colors.gray, textAlign:'center', marginBottom:16 },
