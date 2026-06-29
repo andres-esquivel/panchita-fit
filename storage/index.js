@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  doc, collection, getDoc, setDoc, getDocs, deleteDoc, writeBatch,
+  doc, collection, getDoc, getDocFromServer, setDoc, getDocs, deleteDoc, writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
@@ -591,8 +591,33 @@ export async function importSharedRoutine(code) {
   const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
 
-  const snap = await withTimeout(getDoc(doc(db, 'sharedRoutines', clean)), 5000, 'importRoutine');
-  if (!snap.exists()) throw new Error('Código no encontrado. Verificá que esté bien escrito.');
+  let snap;
+  try {
+    // Las rutinas compartidas son públicas/autenticadas y casi nunca están en caché
+    // del usuario que importa, así que forzamos lectura desde servidor.
+    snap = await withTimeout(
+      getDocFromServer(doc(db, 'sharedRoutines', clean)),
+      7000,
+      'importRoutine'
+    );
+  } catch (error) {
+    console.warn('importSharedRoutine full error:', {
+      code: error?.code,
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+    });
+
+    if (error?.code === 'unavailable' || String(error?.message || '').toLowerCase().includes('offline')) {
+      throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
+    }
+    if (error?.code === 'permission-denied') {
+      throw new Error('No tenés permiso para leer rutinas compartidas. Revisá las reglas de Firestore.');
+    }
+    throw new Error('No se encontró el código. Verificá que esté bien escrito.');
+  }
+
+  if (!snap.exists()) throw new Error('Ese código no existe o ya expiró.');
 
   const data = snap.data();
   if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
