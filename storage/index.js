@@ -58,16 +58,84 @@ function mergeById(primary = [], secondary = []) {
   return [...map.values()];
 }
 
-// ─── Onboarding (device-local) ─────────────────────────────
+// ─── Onboarding ───────────────────────────────────────────
+// Legacy global key + per-user key. La PWA puede perder storage local al reinstalarse,
+// así que también inferimos onboarding desde perfil/rutinas remotas/locales.
 const ONBOARDED_KEY = 'panchita_onboarded';
 
 export async function isOnboarded() {
-  const val = await AsyncStorage.getItem(ONBOARDED_KEY);
-  return val === 'true';
+  try {
+    const legacy = await AsyncStorage.getItem(ONBOARDED_KEY);
+
+    // Si todavía no hay auth, solo podemos confiar en la bandera legacy.
+    if (!auth.currentUser) return legacy === 'true';
+
+    const userFlag = await AsyncStorage.getItem(localKey('onboarded'));
+    if (userFlag === 'true') return true;
+
+    const localProfileRaw = await AsyncStorage.getItem(localKey('profile'));
+    const localProfile = localProfileRaw ? JSON.parse(localProfileRaw) : null;
+    if (localProfile?.onboarded || localProfile?.name || localProfile?.split) return true;
+
+    try {
+      const snap = await withTimeout(getDoc(userDoc('profile/data')), 4500, 'isOnboardedProfile');
+      if (snap.exists()) {
+        const profile = snap.data();
+        await AsyncStorage.setItem(localKey('profile'), JSON.stringify(profile));
+        if (profile?.onboarded || profile?.name || profile?.split) {
+          await AsyncStorage.setItem(localKey('onboarded'), 'true');
+          await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
+          return true;
+        }
+      }
+    } catch (error) {
+      console.warn('Remote onboard check failed:', error?.message || error);
+    }
+
+    const [localWorkouts, localCustom] = await Promise.all([
+      getLocalList('workouts'),
+      getLocalList('customRoutines'),
+    ]);
+    if (localWorkouts.length > 0 || localCustom.length > 0) return true;
+
+    try {
+      const [remoteWorkouts, remoteCustom] = await Promise.all([
+        withTimeout(getAll('workouts'), 4500, 'isOnboardedWorkouts').catch(() => []),
+        withTimeout(getAll('customRoutines'), 4500, 'isOnboardedCustom').catch(() => []),
+      ]);
+      if (remoteWorkouts.length > 0) await setLocalList('workouts', remoteWorkouts);
+      if (remoteCustom.length > 0) await setLocalList('customRoutines', remoteCustom);
+      if (remoteWorkouts.length > 0 || remoteCustom.length > 0) {
+        await AsyncStorage.setItem(localKey('onboarded'), 'true');
+        await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
+        return true;
+      }
+    } catch {}
+
+    // Fallback legacy: para usuarios creados antes de tener bandera por usuario.
+    // Lo usamos al final para no marcar por accidente otro usuario como onboarded.
+    if (legacy === 'true') {
+      await AsyncStorage.setItem(localKey('onboarded'), 'true');
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.warn('isOnboarded failed:', error?.message || error);
+    return false;
+  }
 }
 
 export async function setOnboarded() {
   await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
+  if (auth.currentUser) {
+    await AsyncStorage.setItem(localKey('onboarded'), 'true');
+    withTimeout(
+      setDoc(userDoc('profile/data'), { onboarded: true, updatedAt: new Date().toISOString() }, { merge: true }),
+      6500,
+      'setOnboarded'
+    ).catch(error => console.warn('Remote onboard sync failed:', error));
+  }
 }
 
 // ─── Usuario / Perfil ─────────────────────────────────────
@@ -116,13 +184,25 @@ export async function getWorkouts() {
   }
 }
 
-export async function saveWorkouts(workouts) {
+export async function saveWorkouts(workouts = []) {
+  const normalized = workouts.map((w, idx) => ({
+    ...w,
+    id: w.id || w.workoutId || `workout_${Date.now()}_${idx}`,
+    updatedAt: new Date().toISOString(),
+  }));
+
+  // Local primero: onboarding/rutinas no desaparecen si Firestore tarda.
+  await setLocalList('workouts', normalized);
+
   const batch = writeBatch(db);
-  for (const w of workouts) {
-    const ref = doc(userCol('workouts'), w.id || w.workoutId || String(Date.now()));
+  for (const w of normalized) {
+    const ref = doc(userCol('workouts'), w.id);
     batch.set(ref, w, { merge: true });
   }
-  await batch.commit();
+  withTimeout(batch.commit(), 7000, 'saveWorkouts')
+    .catch(error => console.warn('Remote workouts sync failed:', error));
+
+  return normalized;
 }
 
 // ─── Rutinas custom ────────────────────────────────────────

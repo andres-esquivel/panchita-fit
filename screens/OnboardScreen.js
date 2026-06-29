@@ -71,16 +71,18 @@ export default function OnboardScreen({ onFinish }) {
   }
 
   async function finish() {
-    // Navegar de inmediato, no bloquear esperando Firestore
-    try { await setOnboarded(); } catch (_) {}
+    // Local-first: dejar perfil/rutinas/onboarding persistidos antes de entrar a la app.
+    const cleanName = name.trim();
+    try {
+      await saveUser({ name: cleanName, split: selectedSplit, onboarded: true });
+      if (workouts.length > 0) await saveWorkouts(workouts);
+      await setOnboarded();
+    } catch (error) {
+      console.log('onboarding save:', error?.message || error);
+      // Aunque Firestore falle, storage local ya debería haber quedado guardado.
+      try { await setOnboarded(); } catch (_) {}
+    }
     onFinish();
-    // Guardar en Firestore en background (best-effort)
-    saveUser({ name: name.trim(), split: selectedSplit }).catch(e =>
-      console.log('saveUser bg:', e.message)
-    );
-    if (workouts.length > 0) saveWorkouts(workouts).catch(e =>
-      console.log('saveWorkouts bg:', e.message)
-    );
   }
 
   return (
