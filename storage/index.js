@@ -579,6 +579,64 @@ export async function saveRestTimerSeconds(seconds) {
   }
 }
 
+
+// ─── Notificaciones Panchita (fase 1) ─────────────────────
+const NOTIFICATION_PREFS_DEFAULT = {
+  enabled: false,
+  permission: 'default',
+  reminderTime: '08:00',
+  routineReminders: true,
+  restTimerAlerts: false,
+  updatedAt: null,
+};
+
+export async function getNotificationPrefs() {
+  const localName = 'notificationPrefs';
+  const storageKey = auth.currentUser ? localKey(localName) : `panchita_${localName}`;
+  const localRaw = await AsyncStorage.getItem(storageKey).catch(() => null);
+  const local = localRaw ? JSON.parse(localRaw) : null;
+
+  if (auth.currentUser) {
+    try {
+      const snap = await withTimeout(getDoc(userDoc('settings/preferences')), 3500, 'getNotificationPrefs');
+      if (snap.exists()) {
+        const remote = snap.data()?.notificationPrefs;
+        if (remote) {
+          const merged = { ...NOTIFICATION_PREFS_DEFAULT, ...(local || {}), ...remote };
+          await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+          return merged;
+        }
+      }
+    } catch (error) {
+      console.warn('getNotificationPrefs remote failed:', error?.message || error);
+    }
+  }
+
+  return { ...NOTIFICATION_PREFS_DEFAULT, ...(local || {}) };
+}
+
+export async function saveNotificationPrefs(prefs = {}) {
+  const previous = await getNotificationPrefs().catch(() => ({}));
+  const merged = {
+    ...NOTIFICATION_PREFS_DEFAULT,
+    ...previous,
+    ...prefs,
+    updatedAt: new Date().toISOString(),
+  };
+  const storageKey = auth.currentUser ? localKey('notificationPrefs') : 'panchita_notificationPrefs';
+  await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
+
+  if (auth.currentUser) {
+    withTimeout(
+      setDoc(userDoc('settings/preferences'), { notificationPrefs: merged }, { merge: true }),
+      5000,
+      'saveNotificationPrefs'
+    ).catch(e => console.warn('saveNotificationPrefs remote failed:', e));
+  }
+
+  return merged;
+}
+
 // ─── Programación semanal ──────────────────────────────────
 // Estructura: { L: {id, name} | 'rest' | null, M: ..., X: ..., J: ..., V: ..., S: ..., D: ... }
 const WEEK_SCHEDULE_KEY = 'panchita_weekSchedule';

@@ -1,14 +1,49 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator,
+  TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator, Platform,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar } from '../components/icons';
-import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar, IconWarning } from '../components/icons';
+import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+
+
+function isWebNotificationSupported() {
+  return Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function isPwaStandalone() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator?.standalone === true;
+}
+
+function isIOSWeb() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  return /iphone|ipad|ipod/i.test(window.navigator?.userAgent || '');
+}
+
+function currentNotificationPermission() {
+  if (!isWebNotificationSupported()) return 'unsupported';
+  return window.Notification.permission || 'default';
+}
+
+function showBrowserNotification(title, body) {
+  if (!isWebNotificationSupported() || window.Notification.permission !== 'granted') return false;
+  try {
+    new window.Notification(title, {
+      body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: 'panchita-test',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Días de la semana en orden visual L-D
 const WEEK_DAYS = ['L','M','X','J','V','S','D'];
@@ -47,6 +82,10 @@ export default function SettingsScreen() {
   const s = useMemo(() => createStyles(colors), [colors]);
 
   const [restTimerSeconds, setRestTimerSeconds] = useState(90);
+  const [notificationPrefs, setNotificationPrefs] = useState(null);
+  const [notificationStatus, setNotificationStatus] = useState(currentNotificationPermission());
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationMsg, setNotificationMsg] = useState('');
   const [profileName, setProfileName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
@@ -60,6 +99,10 @@ export default function SettingsScreen() {
   useEffect(() => {
     getUser().then(u => setProfileName(u?.name || '')).catch(() => {});
     getRestTimerSeconds().then(setRestTimerSeconds);
+    getNotificationPrefs().then(prefs => {
+      setNotificationPrefs(prefs);
+      setNotificationStatus(currentNotificationPermission());
+    }).catch(() => setNotificationPrefs({ enabled:false, permission:currentNotificationPermission() }));
     loadWeekData();
   }, []);
 
@@ -87,6 +130,66 @@ export default function SettingsScreen() {
   async function handleRestTimerChange(seconds) {
     setRestTimerSeconds(seconds);
     await saveRestTimerSeconds(seconds);
+  }
+
+  async function handleToggleNotifications() {
+    if (notificationBusy) return;
+    setNotificationBusy(true);
+    setNotificationMsg('');
+    try {
+      if (!isWebNotificationSupported()) {
+        const prefs = await saveNotificationPrefs({ enabled:false, permission:'unsupported' });
+        setNotificationPrefs(prefs);
+        setNotificationStatus('unsupported');
+        setNotificationMsg('Este navegador no soporta notificaciones web. Panchita está molesta, pero informada.');
+        return;
+      }
+
+      let permission = currentNotificationPermission();
+      const nextEnabled = !notificationPrefs?.enabled;
+
+      if (nextEnabled && permission === 'default') {
+        permission = await window.Notification.requestPermission();
+      }
+
+      const enabled = nextEnabled && permission === 'granted';
+      const prefs = await saveNotificationPrefs({ enabled, permission });
+      setNotificationPrefs(prefs);
+      setNotificationStatus(permission);
+
+      if (enabled) {
+        setNotificationMsg(isIOSWeb() && !isPwaStandalone()
+          ? 'Permiso listo. En iPhone, para recibirlas mejor, agregá PanchitaFit a pantalla de inicio.'
+          : 'Notificaciones activadas. Panchita ya tiene permiso para molestar con propósito.');
+      } else if (permission === 'denied') {
+        setNotificationMsg('El navegador bloqueó notificaciones. Activales permiso desde configuración del sitio.');
+      } else {
+        setNotificationMsg('Notificaciones desactivadas. Silencio sospechoso.');
+      }
+    } catch (error) {
+      console.warn('notification toggle failed:', error);
+      setNotificationMsg('No pude activar notificaciones en este navegador. Probá desde la app instalada.');
+    } finally {
+      setNotificationBusy(false);
+    }
+  }
+
+  async function handleTestNotification() {
+    setNotificationMsg('');
+    if (!isWebNotificationSupported()) {
+      setNotificationMsg('Este navegador no soporta notificaciones web.');
+      return;
+    }
+    const permission = currentNotificationPermission();
+    if (permission !== 'granted') {
+      setNotificationMsg('Primero activá el permiso de notificaciones. Panchita toca la puerta antes de entrar.');
+      return;
+    }
+    const ok = showBrowserNotification(
+      'Panchita dice:',
+      'Probando notificaciones. Técnica limpia, hidratación y cero excusas raras.'
+    );
+    setNotificationMsg(ok ? 'Notificación de prueba enviada.' : 'No pude mostrar la notificación de prueba.');
   }
 
   async function handleSaveName() {
@@ -227,6 +330,54 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        {/* ── NOTIFICACIONES ── */}
+        <Text style={s.sectionTitle}>NOTIFICACIONES</Text>
+        <View style={s.card}>
+          <View style={s.row}>
+            <View style={s.rowLeft}>
+              <View style={s.iconBg}>
+                <IconBolt size={20} color={colors.purpleLight} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Panchita te recuerda entrenar</Text>
+                <Text style={s.rowSub}>
+                  Fase 1: permiso y pruebas. Los recordatorios programados vienen después con backend.
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[s.togglePill, notificationPrefs?.enabled && s.togglePillOn, notificationBusy && { opacity: 0.6 }]}
+              onPress={handleToggleNotifications}
+              disabled={notificationBusy}
+              activeOpacity={0.75}
+            >
+              {notificationBusy ? <ActivityIndicator color={colors.accentText || '#fff'} size="small" /> : <Text style={[s.togglePillTxt, notificationPrefs?.enabled && s.togglePillTxtOn]}>{notificationPrefs?.enabled ? 'On' : 'Off'}</Text>}
+            </TouchableOpacity>
+          </View>
+
+          <View style={s.notificationInfoBox}>
+            <View style={s.notificationInfoLine}>
+              <Text style={s.notificationInfoLabel}>Permiso</Text>
+              <Text style={s.notificationInfoValue}>{notificationStatus}</Text>
+            </View>
+            {isIOSWeb() && !isPwaStandalone() ? (
+              <View style={s.notificationHintRow}>
+                <IconWarning size={15} color={colors.lime} />
+                <Text style={s.notificationHintTxt}>En iPhone agregá la app a pantalla de inicio para mejor soporte.</Text>
+              </View>
+            ) : null}
+            {notificationMsg ? <Text style={s.notificationMsg}>{notificationMsg}</Text> : null}
+          </View>
+
+          <TouchableOpacity
+            style={[s.testNotificationBtn, (!notificationPrefs?.enabled || notificationStatus !== 'granted') && { opacity: 0.55 }]}
+            onPress={handleTestNotification}
+            activeOpacity={0.75}
+          >
+            <Text style={s.testNotificationTxt}>Probar notificación</Text>
+          </TouchableOpacity>
         </View>
 
         {/* ── MI SEMANA ── */}
@@ -425,6 +576,32 @@ function createStyles(colors) {
     restTimerBtnActive: { backgroundColor:colors.purple, borderColor:colors.purple },
     restTimerText: { fontSize:13, fontWeight:'800', color:colors.grayLight },
     restTimerTextActive: { color:colors.accentText||'#fff' },
+
+    togglePill: {
+      minWidth:56, height:34, borderRadius:RADIUS.full,
+      backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center', paddingHorizontal:12,
+    },
+    togglePillOn: { backgroundColor:colors.purple, borderColor:colors.purple },
+    togglePillTxt: { color:colors.grayLight, fontSize:12, fontWeight:'900' },
+    togglePillTxtOn: { color:colors.accentText||'#fff' },
+    notificationInfoBox: {
+      marginHorizontal:16, marginBottom:12, padding:12,
+      backgroundColor:colors.bgInput, borderRadius:RADIUS.md,
+      borderWidth:1, borderColor:colors.purpleDim,
+    },
+    notificationInfoLine: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:8 },
+    notificationInfoLabel: { color:colors.gray, fontSize:12, fontWeight:'700' },
+    notificationInfoValue: { color:colors.purpleLight, fontSize:12, fontWeight:'900' },
+    notificationHintRow: { flexDirection:'row', alignItems:'center', gap:7, marginBottom:8 },
+    notificationHintTxt: { flex:1, color:colors.grayLight, fontSize:11, lineHeight:15, fontWeight:'600' },
+    notificationMsg: { color:colors.grayLight, fontSize:12, lineHeight:16, fontStyle:'italic' },
+    testNotificationBtn: {
+      marginHorizontal:16, marginBottom:14, minHeight:42,
+      borderRadius:RADIUS.full, backgroundColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple,
+    },
+    testNotificationTxt: { color:colors.purpleLight, fontSize:13, fontWeight:'900' },
 
     // ── Info rows ──
     infoRow: {
