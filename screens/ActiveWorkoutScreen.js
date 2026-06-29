@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   TouchableOpacity, TextInput, Modal, Animated, ActivityIndicator,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Vibration,
 } from 'react-native';
 import { Share } from 'react-native';
 import { RADIUS } from '../constants/theme';
@@ -36,6 +36,14 @@ const AUTOSAVE_PHRASES = [
   'Guardado. No confío en el WiFi pero bueno.',
   'Datos a salvo. Por ahora.',
   'Guardé todo. Seguí levantando.',
+];
+
+const REST_END_PHRASES = [
+  '¡Terminaste de descansar! Ahora dale.',
+  'Descanso terminado. No hay excusas.',
+  'Ya está. El siguiente set no se va a hacer solo.',
+  '¿Lista? Porque el peso te está esperando.',
+  'Recarga completa. A por otro set.',
 ];
 
 const MUSCLE_EXERCISES = {
@@ -139,8 +147,9 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   });
 
   const autoSaveTimerRef = useRef(null);
-  const restIntervalRef = useRef(null);
+  const restIntervalRef  = useRef(null);
   const lastSavedLogRef  = useRef('');
+  const restActiveRef    = useRef(false); // true while a timer is running
 
   const formatRestTime = useCallback((seconds) => {
     const safe = Math.max(0, seconds || 0);
@@ -149,12 +158,14 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
 
   const startRestTimer = useCallback((seconds = restTimerSeconds) => {
     const normalized = Math.max(1, parseInt(seconds, 10) || 90);
+    restActiveRef.current = true;
     setRestLeft(normalized);
   }, [restTimerSeconds]);
 
   const activateRestTimer = useCallback(async () => {
     const fallback = 90;
     setRestTimerSeconds(fallback);
+    restActiveRef.current = true;
     setRestLeft(fallback);
     saveRestTimerSeconds(fallback).catch(() => {});
   }, []);
@@ -193,6 +204,19 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
       });
     }, 1000);
     return ()=>{ if(restIntervalRef.current) clearInterval(restIntervalRef.current); };
+  },[restLeft]);
+
+  // Reacción Panchita al terminar el descanso
+  useEffect(()=>{
+    if (restLeft !== 0 || !restActiveRef.current) return;
+    restActiveRef.current = false;
+    try { Vibration.vibrate([0, 180, 80, 180]); } catch {}
+    const phrase = REST_END_PHRASES[Math.floor(Math.random() * REST_END_PHRASES.length)];
+    setReactionPhrase(phrase);
+    setPanchitaReaction(true);
+    const t = setTimeout(()=>setPanchitaReaction(false), 4000);
+    return ()=>clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[restLeft]);
 
   // Autosave debounced 900ms
