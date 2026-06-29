@@ -819,23 +819,25 @@ export default function WorkoutScreen({ navigation, route }) {
     } finally { setEditingRoutineSaving(false); }
   }
 
-  // ─── Compartir rutina — T4: código local inmediato, Firestore en background ──
-  function openShareRoutine(routine) {
+  // ─── Compartir rutina — código real verificado en Firestore ──
+  async function openShareRoutine(routine) {
     setShareRoutineTarget(routine);
     setShareCode('');
     setShareWarning('');
     setCodeCopied(false);
-    setSharingLoading(false);
+    setSharingLoading(true);
     setShowShareModal(true);
-    // Generar código localmente y mostrar de inmediato (sin spinner)
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let localCode = '';
-    for (let i=0; i<6; i++) localCode += chars[Math.floor(Math.random()*chars.length)];
-    setShareCode(localCode);
-    // Guardar en Firestore en segundo plano
-    shareRoutine({ ...routine, _presetCode: localCode }).catch(()=>{
-      setShareWarning('Código generado localmente — puede que otros no puedan importarlo aún. Intentá de nuevo en unos segundos.');
-    });
+
+    try {
+      // No mostramos un código hasta confirmar que existe en servidor.
+      const serverCode = await shareRoutine(routine);
+      setShareCode(serverCode);
+    } catch (error) {
+      console.warn('openShareRoutine error:', error);
+      setShareWarning(error?.message || 'No se pudo publicar el código. Revisá conexión e intentá otra vez.');
+    } finally {
+      setSharingLoading(false);
+    }
   }
 
   async function copyShareCode() {
@@ -1236,10 +1238,13 @@ export default function WorkoutScreen({ navigation, route }) {
       <Modal visible={showShareModal} transparent animationType="fade" onRequestClose={()=>setShowShareModal(false)}>
         <View style={s.modalOverlay}>
           <View style={[s.modalCard,{width:'88%'}]}>
-            <Panchita state={sharingLoading?'idle':'happy'} size={90}/>
+            <Panchita state={sharingLoading?'thinking':shareCode?'happy':'angry'} size={90}/>
             <Text style={s.modalTitle}>Compartir rutina</Text>
             {sharingLoading?(
-              <ActivityIndicator color={colors.purpleLight} size="large"/>
+              <>
+                <ActivityIndicator color={colors.purpleLight} size="large"/>
+                <Text style={[s.sharePanchitaPhrase,{marginTop:12}]}>Publicando el código real... nada de códigos fantasma, gracias.</Text>
+              </>
             ):shareCode?(
               <>
                 <Text style={s.shareSubtitle}>{shareRoutineTarget?.name||shareRoutineTarget?.day}</Text>
@@ -1247,11 +1252,7 @@ export default function WorkoutScreen({ navigation, route }) {
                   <Text style={s.shareCodeText}>{shareCode}</Text>
                   <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Tap para compartir'}</Text>
                 </TouchableOpacity>
-                {shareWarning?(
-                  <Text style={s.shareWarningText}>{shareWarning}</Text>
-                ):(
-                  <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás. O al menos que tenés una rutina."</Text>
-                )}
+                <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás. O al menos que tenés una rutina."</Text>
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
                 <TouchableOpacity style={s.modalBtn} onPress={copyShareCode}>
                   <View style={s.modalBtnRow}>
@@ -1263,7 +1264,17 @@ export default function WorkoutScreen({ navigation, route }) {
                   <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
                 </TouchableOpacity>
               </>
-            ):null}
+            ):(
+              <>
+                <Text style={s.shareWarningText}>{shareWarning || 'No se pudo publicar el código.'}</Text>
+                <TouchableOpacity style={[s.modalBtn,{marginTop:14}]} onPress={()=>shareRoutineTarget && openShareRoutine(shareRoutineTarget)}>
+                  <Text style={s.modalBtnText}>Intentar de nuevo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={()=>setShowShareModal(false)} style={{marginTop:10}}>
+                  <Text style={{color:colors.gray,fontSize:13,textAlign:'center'}}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       </Modal>

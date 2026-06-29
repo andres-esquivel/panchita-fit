@@ -23,6 +23,10 @@ function withTimeout(promise, ms = 6000, label = 'operacion') {
   ]);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function getAll(colPath) {
   const snap = await getDocs(userCol(colPath));
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -557,77 +561,132 @@ function toStringArray(exercises) {
 }
 
 export async function shareRoutine(routine) {
-  // Si viene con código preestablecido (generado localmente), usarlo directamente
-  let code = routine._presetCode;
+  let code = String(routine._presetCode || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  if (!code) {
-    // Buscar código único (máx 5 intentos para evitar colisiones)
-    for (let i = 0; i < 5; i++) {
-      const tryCode = generateShareCode();
-      const ref = doc(db, 'sharedRoutines', tryCode);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) { code = tryCode; break; }
-    }
-    if (!code) code = generateShareCode();
-  }
-
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 días
-
-  await setDoc(doc(db, 'sharedRoutines', code), {
-    routineData: {
-      nombre: (routine.name || routine.day || 'Mi rutina').trim(),
-      ejercicios: toStringArray(routine.exercises),
-    },
-    createdBy: uid(),
-    createdAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  });
-
-  return code;
-}
-
-export async function importSharedRoutine(code) {
-  const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
-
-  let snap;
   try {
-    // Las rutinas compartidas son públicas/autenticadas y casi nunca están en caché
-    // del usuario que importa, así que forzamos lectura desde servidor.
-    snap = await withTimeout(
-      getDocFromServer(doc(db, 'sharedRoutines', clean)),
-      7000,
-      'importRoutine'
-    );
+    if (code && code.length !== 6) code = '';
+
+    if (!code) {
+      // Buscar código único desde servidor. Importante: no usar caché para códigos públicos.
+      for (let i = 0; i < 6; i++) {
+        const tryCode = generateShareCode();
+        const snap = await withTimeout(
+          getDocFromServer(doc(db, 'sharedRoutines', tryCode)),
+          5000,
+          'checkShareCode'
+        );
+        if (!snap.exists()) { code = tryCode; break; }
+      }
+      if (!code) code = generateShareCode();
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 días
+    const payload = {
+      code,
+      routineData: {
+        nombre: (routine.name || routine.day || 'Mi rutina').trim(),
+        ejercicios: toStringArray(routine.exercises),
+      },
+      createdBy: uid(),
+      createdAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      public: true,
+    };
+
+    const ref = doc(db, 'sharedRoutines', code);
+    await withTimeout(setDoc(ref, payload), 8000, 'shareRoutine');
+
+    // Verificación dura: solo devolvemos el código si existe en servidor.
+    const verify = await withTimeout(getDocFromServer(ref), 8000, 'verifyShareRoutine');
+    if (!verify.exists()) {
+      throw new Error('No se pudo publicar el código. Intentá de nuevo.');
+    }
+
+    return code;
   } catch (error) {
-    console.warn('importSharedRoutine full error:', {
+    console.warn('shareRoutine full error:', {
       code: error?.code,
       message: error?.message,
       name: error?.name,
       stack: error?.stack,
     });
 
-    if (error?.code === 'unavailable' || String(error?.message || '').toLowerCase().includes('offline')) {
-      throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
-    }
     if (error?.code === 'permission-denied') {
-      throw new Error('No tenés permiso para leer rutinas compartidas. Revisá las reglas de Firestore.');
+      throw new Error('No tenés permiso para compartir rutinas. Revisá las reglas de Firestore para sharedRoutines.');
     }
-    throw new Error('No se encontró el código. Verificá que esté bien escrito.');
+    if (error?.code === 'unavailable' || String(error?.message || '').toLowerCase().includes('offline')) {
+      throw new Error('Sin conexión. Necesitás internet para compartir una rutina.');
+    }
+    if (String(error?.message || '').toLowerCase().includes('timeout')) {
+      throw new Error('Firestore tardó demasiado publicando el código. Intentá otra vez.');
+    }
+    throw error;
+  }
+}
+
+export async function importSharedRoutine(code) {
+  const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (clean.length !== 6) throw new Error('El código debe tener 6 caracteres.');
+
+  let lastError = null;
+
+  // Si el emisor acaba de crear el código, Firestore puede tardar un instante.
+  // Reintentamos corto desde servidor antes de rendirnos.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const snap = await withTimeout(
+        getDocFromServer(doc(db, 'sharedRoutines', clean)),
+        7000,
+        'importRoutine'
+      );
+
+      if (!snap.exists()) {
+        if (attempt < 2) {
+          await sleep(700 + attempt * 900);
+          continue;
+        }
+        throw new Error('Ese código no existe o no terminó de publicarse. Pedile a la otra persona generar/compartir el código otra vez.');
+      }
+
+      const data = snap.data();
+      if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
+        throw new Error('Este código expiró. Pedile uno nuevo al creador.');
+      }
+
+      return {
+        nombre: data.routineData?.nombre || 'Rutina importada',
+        ejercicios: data.routineData?.ejercicios || [],
+      };
+    } catch (error) {
+      lastError = error;
+      const msg = String(error?.message || '').toLowerCase();
+
+      // Errores nuestros/no reintentables
+      if (msg.includes('ese código') || msg.includes('expiró')) throw error;
+
+      console.warn('importSharedRoutine full error:', {
+        attempt,
+        code: error?.code,
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack,
+      });
+
+      if (error?.code === 'unavailable' || msg.includes('offline')) {
+        throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
+      }
+      if (error?.code === 'permission-denied') {
+        throw new Error('No tenés permiso para leer rutinas compartidas. Revisá las reglas de Firestore.');
+      }
+      if (attempt < 2) await sleep(700 + attempt * 900);
+    }
   }
 
-  if (!snap.exists()) throw new Error('Ese código no existe o ya expiró.');
-
-  const data = snap.data();
-  if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
-    throw new Error('Este código expiró. Pedile uno nuevo al creador.');
+  if (String(lastError?.message || '').toLowerCase().includes('timeout')) {
+    throw new Error('Firestore tardó demasiado buscando el código. Probá otra vez en unos segundos.');
   }
-
-  return {
-    nombre: data.routineData?.nombre || 'Rutina importada',
-    ejercicios: data.routineData?.ejercicios || [],
-  };
+  throw new Error('No se encontró el código. Verificá que esté bien escrito.');
 }
 
 // ─── Limpiar todo (debug) ──────────────────────────────────
