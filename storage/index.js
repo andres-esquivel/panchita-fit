@@ -4,6 +4,8 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
+const FIREBASE_PROJECT_ID = 'panchita-gym';
+
 // ─── Helpers ──────────────────────────────────────────────
 function uid() {
   const u = auth.currentUser;
@@ -25,6 +27,97 @@ function withTimeout(promise, ms = 6000, label = 'operacion') {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function firestoreDocUrl(collectionName, docId) {
+  return `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collectionName}/${docId}`;
+}
+
+async function authedFetchWithTimeout(url, options = {}, ms = 12000, label = 'fetch') {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const token = await auth.currentUser?.getIdToken?.();
+    if (!token) throw new Error('No user authenticated');
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+    return res;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`${label} timeout`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function routineToFirestoreFields(code, routine, now, expiresAt) {
+  return {
+    code: { stringValue: code },
+    public: { booleanValue: true },
+    createdBy: { stringValue: uid() },
+    createdAt: { stringValue: now.toISOString() },
+    expiresAt: { stringValue: expiresAt.toISOString() },
+    routineData: {
+      mapValue: {
+        fields: {
+          nombre: { stringValue: (routine.name || routine.day || 'Mi rutina').trim() },
+          ejercicios: {
+            arrayValue: {
+              values: toStringArray(routine.exercises).map(ex => ({ stringValue: ex })),
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+function firestoreFieldsToRoutine(fields = {}) {
+  const dataFields = fields.routineData?.mapValue?.fields || {};
+  const ejercicios = dataFields.ejercicios?.arrayValue?.values || [];
+  return {
+    nombre: dataFields.nombre?.stringValue || 'Rutina importada',
+    ejercicios: ejercicios.map(v => v.stringValue).filter(Boolean),
+    expiresAt: fields.expiresAt?.stringValue || null,
+  };
+}
+
+async function getSharedRoutineDocRest(code) {
+  const res = await authedFetchWithTimeout(firestoreDocUrl('sharedRoutines', code), { method: 'GET' }, 12000, 'sharedRoutineGet');
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(body || `Firestore REST GET ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+async function setSharedRoutineDocRest(code, routine) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const payload = { fields: routineToFirestoreFields(code, routine, now, expiresAt) };
+  const res = await authedFetchWithTimeout(
+    firestoreDocUrl('sharedRoutines', code),
+    { method: 'PATCH', body: JSON.stringify(payload) },
+    15000,
+    'sharedRoutineSet'
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const err = new Error(body || `Firestore REST PATCH ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 }
 
 async function getAll(colPath) {
@@ -567,61 +660,43 @@ export async function shareRoutine(routine) {
     if (code && code.length !== 6) code = '';
 
     if (!code) {
-      // Buscar código único desde servidor. Importante: no usar caché para códigos públicos.
+      // REST evita cuelgues de WebChannel/IndexedDB del SDK en Safari/PWA.
+      // La colisión es muy improbable, pero revisamos servidor antes de usarlo.
       for (let i = 0; i < 6; i++) {
         const tryCode = generateShareCode();
-        const snap = await withTimeout(
-          getDocFromServer(doc(db, 'sharedRoutines', tryCode)),
-          5000,
-          'checkShareCode'
-        );
-        if (!snap.exists()) { code = tryCode; break; }
+        const existing = await getSharedRoutineDocRest(tryCode);
+        if (!existing) { code = tryCode; break; }
       }
       if (!code) code = generateShareCode();
     }
 
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 días
-    const payload = {
-      code,
-      routineData: {
-        nombre: (routine.name || routine.day || 'Mi rutina').trim(),
-        ejercicios: toStringArray(routine.exercises),
-      },
-      createdBy: uid(),
-      createdAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      public: true,
-    };
+    await setSharedRoutineDocRest(code, routine);
 
-    const ref = doc(db, 'sharedRoutines', code);
-    await withTimeout(setDoc(ref, payload), 8000, 'shareRoutine');
-
-    // Verificación dura: solo devolvemos el código si existe en servidor.
-    const verify = await withTimeout(getDocFromServer(ref), 8000, 'verifyShareRoutine');
-    if (!verify.exists()) {
-      throw new Error('No se pudo publicar el código. Intentá de nuevo.');
-    }
+    // Verificación dura desde REST: si devolvemos código, existe en servidor.
+    const verify = await getSharedRoutineDocRest(code);
+    if (!verify) throw new Error('No se pudo publicar el código. Intentá de nuevo.');
 
     return code;
   } catch (error) {
     console.warn('shareRoutine full error:', {
+      status: error?.status,
       code: error?.code,
       message: error?.message,
       name: error?.name,
       stack: error?.stack,
     });
 
-    if (error?.code === 'permission-denied') {
-      throw new Error('No tenés permiso para compartir rutinas. Revisá las reglas de Firestore para sharedRoutines.');
+    const msg = String(error?.message || '').toLowerCase();
+    if (error?.status === 403 || error?.code === 'permission-denied' || msg.includes('permission')) {
+      throw new Error('Firestore bloqueó compartir rutinas. Revisá reglas de sharedRoutines.');
     }
-    if (error?.code === 'unavailable' || String(error?.message || '').toLowerCase().includes('offline')) {
+    if (error?.code === 'unavailable' || msg.includes('offline') || msg.includes('network')) {
       throw new Error('Sin conexión. Necesitás internet para compartir una rutina.');
     }
-    if (String(error?.message || '').toLowerCase().includes('timeout')) {
-      throw new Error('Firestore tardó demasiado publicando el código. Intentá otra vez.');
+    if (msg.includes('timeout')) {
+      throw new Error('La conexión tardó demasiado publicando el código. Probá otra vez con buena señal.');
     }
-    throw error;
+    throw new Error(error?.message || 'No se pudo publicar el código. Intentá de nuevo.');
   }
 }
 
@@ -631,17 +706,10 @@ export async function importSharedRoutine(code) {
 
   let lastError = null;
 
-  // Si el emisor acaba de crear el código, Firestore puede tardar un instante.
-  // Reintentamos corto desde servidor antes de rendirnos.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const snap = await withTimeout(
-        getDocFromServer(doc(db, 'sharedRoutines', clean)),
-        7000,
-        'importRoutine'
-      );
-
-      if (!snap.exists()) {
+      const docJson = await getSharedRoutineDocRest(clean);
+      if (!docJson) {
         if (attempt < 2) {
           await sleep(700 + attempt * 900);
           continue;
@@ -649,42 +717,41 @@ export async function importSharedRoutine(code) {
         throw new Error('Ese código no existe o no terminó de publicarse. Pedile a la otra persona generar/compartir el código otra vez.');
       }
 
-      const data = snap.data();
+      const data = firestoreFieldsToRoutine(docJson.fields || {});
       if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
         throw new Error('Este código expiró. Pedile uno nuevo al creador.');
       }
 
       return {
-        nombre: data.routineData?.nombre || 'Rutina importada',
-        ejercicios: data.routineData?.ejercicios || [],
+        nombre: data.nombre,
+        ejercicios: data.ejercicios,
       };
     } catch (error) {
       lastError = error;
       const msg = String(error?.message || '').toLowerCase();
-
-      // Errores nuestros/no reintentables
       if (msg.includes('ese código') || msg.includes('expiró')) throw error;
 
       console.warn('importSharedRoutine full error:', {
         attempt,
+        status: error?.status,
         code: error?.code,
         message: error?.message,
         name: error?.name,
         stack: error?.stack,
       });
 
-      if (error?.code === 'unavailable' || msg.includes('offline')) {
-        throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
-      }
-      if (error?.code === 'permission-denied') {
+      if (error?.status === 403 || error?.code === 'permission-denied' || msg.includes('permission')) {
         throw new Error('No tenés permiso para leer rutinas compartidas. Revisá las reglas de Firestore.');
+      }
+      if (error?.code === 'unavailable' || msg.includes('offline') || msg.includes('network')) {
+        throw new Error('Sin conexión. Necesitás internet para importar una rutina.');
       }
       if (attempt < 2) await sleep(700 + attempt * 900);
     }
   }
 
   if (String(lastError?.message || '').toLowerCase().includes('timeout')) {
-    throw new Error('Firestore tardó demasiado buscando el código. Probá otra vez en unos segundos.');
+    throw new Error('La conexión tardó demasiado buscando el código. Probá otra vez en unos segundos.');
   }
   throw new Error('No se encontró el código. Verificá que esté bien escrito.');
 }
