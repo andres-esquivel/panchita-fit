@@ -1394,9 +1394,12 @@ export default function WorkoutScreen({ navigation, route }) {
                 </Text>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.purple,marginBottom:10}]} onPress={startNewSession}>
                   <View style={s.inlineIconRow}><IconBolt size={16} color={colors.accentText||'#fff'} /><Text style={[s.createBtnTxt,{color:colors.accentText||'#fff',fontSize:16}]}>Nueva sesión</Text></View>
+<<<<<<< HEAD
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purple,marginBottom:10}]} onPress={()=>openPastSessionModal(routineModalTarget)}>
                   <View style={s.inlineIconRow}><IconCalendar size={16} color={colors.purpleLight} /><Text style={[s.createBtnTxt,{color:colors.purpleLight}]}>Registrar sesión pasada</Text></View>
+=======
+>>>>>>> 1546160cbfcadbc751d6a6f12b8ecdc6716c665e
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.createBtn,{backgroundColor:colors.bgInput,borderWidth:1,borderColor:colors.purpleDim,marginBottom:6}]} onPress={()=>setShowHistoryView(true)}>
                   <View style={s.inlineIconRow}><IconHistory size={16} color={colors.grayLight} /><Text style={[s.createBtnTxt,{color:colors.grayLight}]}>Ver historial</Text></View>
