@@ -15,6 +15,13 @@ import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDot
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
 
+function formatShareCodePreview(code) {
+  const clean = String(code || '').trim();
+  if (!clean) return '';
+  if (clean.length <= 34) return clean;
+  return `${clean.slice(0, 18)}...${clean.slice(-12)}`;
+}
+
 const SET_PHRASES = [
   '¡Set hecho! Eso es lo que hay que hacer.',
   'Bien. Ahora descansá 90 segundos. No 3 minutos.',
@@ -647,8 +654,8 @@ ${shareCode}` });
               <>
                 <Text style={s.shareSubtitle}>{routine?.name||routine?.day}</Text>
                 <TouchableOpacity style={s.shareCodeBox} onPress={copyShareCode} activeOpacity={0.7}>
-                  <Text style={s.shareCodeText}>{shareCode}</Text>
-                  <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Tap para compartir'}</Text>
+                  <Text style={s.shareCodeText} numberOfLines={1} ellipsizeMode="middle">{formatShareCodePreview(shareCode)}</Text>
+                  <Text style={s.shareCodeHint}>{codeCopied?'Compartido':'Código largo listo · tap para compartir'}</Text>
                 </TouchableOpacity>
                 <Text style={s.sharePanchitaPhrase}>"Ahora todos van a saber que entrenás."</Text>
                 <Text style={s.shareExpiry}>Este código expira en 30 días.</Text>
@@ -976,8 +983,8 @@ function createStyles(colors) {
 
     // Share
     shareSubtitle: { fontSize:14, color:colors.grayLight, marginTop:2, marginBottom:16, textAlign:'center' },
-    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:14, paddingHorizontal:14, alignItems:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%' },
-    shareCodeText: { fontSize:11, lineHeight:16, fontWeight:'800', color:colors.purpleLight, letterSpacing:0.2, textAlign:'center' },
+    shareCodeBox: { backgroundColor:colors.bgInput, borderRadius:RADIUS.md, paddingVertical:14, paddingHorizontal:14, alignItems:'center', justifyContent:'center', marginBottom:10, borderWidth:2, borderColor:colors.purple, width:'100%', overflow:'hidden' },
+    shareCodeText: { width:'100%', fontSize:14, lineHeight:18, fontWeight:'900', color:colors.purpleLight, letterSpacing:0.2, textAlign:'center' },
     shareCodeHint: { fontSize:12, color:colors.gray, marginTop:6 },
     sharePanchitaPhrase: { fontSize:13, color:colors.gray, fontStyle:'italic', textAlign:'center', paddingHorizontal:16, marginBottom:8 },
     shareExpiry: { fontSize:12, color:colors.gray, textAlign:'center', marginBottom:16 },
