@@ -15,6 +15,7 @@ import OnboardScreen  from './screens/OnboardScreen';
 import LoginScreen    from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import WeeklyReviewModal from './screens/WeeklyReviewModal';
+import InstallPromptBanner from './components/InstallPromptBanner';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { isOnboarded, shouldShowWeeklyReview, markWeeklyReviewSeen } from './storage';
 import { IconHome, IconDumbbell, IconPaw, IconChart, IconSettings } from './components/icons';
@@ -197,6 +198,7 @@ function RootApp() {
   return (
     <SafeAreaProvider>
       <AppNavigator />
+      <InstallPromptBanner />
       {weeklyReviewInfo && (
         <WeeklyReviewModal
           visible={showWeeklyReview}
