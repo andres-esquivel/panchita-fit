@@ -8,6 +8,7 @@ import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar, IconWarning } from '../components/icons';
+import Sisifo from '../components/Sisifo';
 import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
@@ -445,6 +446,20 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── MASCOTAS ── */}
+        <Text style={s.sectionTitle}>MASCOTAS</Text>
+        <View style={s.card}>
+          <View style={s.mascotRow}>
+            <View style={s.mascotStage}>
+              <Sisifo state="push" size={112} autoWave />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Sísifo</Text>
+              <Text style={s.rowSub}>Piedra, montaña y cero excusas. Tocá la mascota para verla empujar.</Text>
+            </View>
+          </View>
+        </View>
+
         {/* ── APP ── */}
         <Text style={s.sectionTitle}>APP</Text>
         <View style={s.card}>
@@ -602,6 +617,16 @@ function createStyles(colors) {
       alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple,
     },
     testNotificationTxt: { color:colors.purpleLight, fontSize:13, fontWeight:'900' },
+
+    mascotRow: {
+      flexDirection:'row', alignItems:'center', gap:14,
+      paddingVertical:14, paddingHorizontal:16,
+    },
+    mascotStage: {
+      width:118, height:118, borderRadius:RADIUS.lg,
+      backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center', overflow:'hidden',
+    },
 
     // ── Info rows ──
     infoRow: {
