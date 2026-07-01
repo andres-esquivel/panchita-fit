@@ -2,18 +2,18 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   TouchableOpacity, TextInput, Modal, Alert, Animated, Keyboard, ActivityIndicator,
-  Dimensions, KeyboardAvoidingView, Platform,
+  Dimensions, KeyboardAvoidingView, Platform, AppState,
 } from 'react-native';
 
 import { useFocusEffect } from '@react-navigation/native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import {
-  getWorkouts, getLocalWorkouts, getLogs, saveLog,
+  getWorkouts, getLocalWorkouts, getLogs, saveLog, saveLogDraft,
   getCustomRoutines, getLocalCustomRoutines,
   saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity, getWeightUnit,
-  shareRoutine, importSharedRoutine, getActiveSessionDraft,
+  shareRoutine, importSharedRoutine, getActiveSessionDraft, subscribeLogs,
 } from '../storage';
 import {
   IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
@@ -357,6 +357,7 @@ export default function WorkoutScreen({ navigation, route }) {
 
   const autoSaveTimerRef = useRef(null);
   const lastSavedLogRef  = useRef('');
+  const lastDraftLogRef  = useRef('');
   const selectedWorkoutRef = useRef(null); // para acceso en closures async
 
   const pastYears = useMemo(() => {
@@ -376,7 +377,37 @@ export default function WorkoutScreen({ navigation, route }) {
     return `${pastSelectedYear}-${String(pastSelectedMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
 
+  function applyRoutineHistory(routine, logs = []) {
+    if (!routine?.id) return;
+    const routineLogs = logs
+      .filter(l => l.workoutId === routine.id && l.completed)
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    setHistoryLogs(routineLogs.slice(0, 10));
+    if (routineLogs.length > 0) {
+      const lastDate = routineLogs[0].date;
+      const today = new Date(); today.setHours(0,0,0,0);
+      const last  = new Date(lastDate); last.setHours(0,0,0,0);
+      setRoutineModalDaysSince(Math.round((today-last)/(1000*60*60*24)));
+    } else {
+      setRoutineModalDaysSince(null);
+    }
+  }
+
   useFocusEffect(useCallback(()=>{ loadAll(); },[mode]));
+
+  // Historial en vivo: pinta desde caché local inmediatamente y luego se actualiza
+  // cuando Firestore responde. Evita el bug de historial blanco hasta refrescar.
+  useEffect(() => {
+    if (!showRoutineModal || !routineModalTarget?.id) return;
+    let alive = true;
+    getLogs().then(logs => {
+      if (alive) applyRoutineHistory(routineModalTarget, logs);
+    }).catch(() => {});
+    const unsub = subscribeLogs((logs) => {
+      if (alive) applyRoutineHistory(routineModalTarget, logs);
+    }, undefined, 80);
+    return () => { alive = false; unsub?.(); };
+  }, [showRoutineModal, routineModalTarget?.id]);
 
   useEffect(()=>()=>{ if(autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); },[]);
 
@@ -416,7 +447,30 @@ export default function WorkoutScreen({ navigation, route }) {
   // Nota: la unidad global (weightUnit) solo es el default para ejercicios nuevos.
   // Cada ejercicio tiene su propia unidad (ex.unit). Ver T2.
 
-  // Autosave
+  // Draft local inmediato para la vista de entrenamiento embebida.
+  useEffect(()=>{
+    if (!log || completed || !logHasProgress(log)) return;
+    const signature = logSignature(log);
+    if (signature === lastDraftLogRef.current) return;
+    lastDraftLogRef.current = signature;
+    saveLogDraft(log).catch(e => console.warn('draft save failed:', e));
+  }, [log, completed]);
+
+  useEffect(()=>{
+    const flushDraft = () => {
+      if (log && !completed && logHasProgress(log)) saveLogDraft(log).catch(()=>{});
+    };
+    const sub = AppState?.addEventListener?.('change', state => {
+      if (state === 'inactive' || state === 'background') flushDraft();
+    });
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', flushDraft);
+      return () => { window.removeEventListener('beforeunload', flushDraft); sub?.remove?.(); };
+    }
+    return () => sub?.remove?.();
+  }, [log, completed]);
+
+  // Autosave remoto debounced 3.5s
   useEffect(()=>{
     if (!log||!selectedWorkout||completed) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -445,7 +499,7 @@ export default function WorkoutScreen({ navigation, route }) {
         console.warn('autosave failed:',e);
         setAutoSaveState('error');
       }
-    },900);
+    },3500);
   },[log, selectedWorkout?.id, completed]);
 
   // ─── ConfirmModal helpers ─────────────────────────────────
@@ -528,6 +582,7 @@ export default function WorkoutScreen({ navigation, route }) {
     setLog(blankLog);
     setCompleted(false);
     lastSavedLogRef.current = '';
+    lastDraftLogRef.current = '';
     setAutoSaveState('idle');
 
     try {
@@ -551,6 +606,7 @@ export default function WorkoutScreen({ navigation, route }) {
         setLog(validatedLog);
         setCompleted(todayLog.completed);
         lastSavedLogRef.current = logSignature(validatedLog);
+        lastDraftLogRef.current = logSignature(validatedLog);
         setAutoSaveState('saved');
       } else if (workout.isRecurring && last) {
         // Rutina recurrente: pre-cargar pesos anteriores
@@ -984,27 +1040,13 @@ ${shareCode}` });
   }
 
   // ─── T3: Routine selection modal ─────────────────────────
-  async function openRoutineModal(routine) {
+  function openRoutineModal(routine) {
     setRoutineModalTarget(routine);
     setShowHistoryView(false);
     setHistoryDetailLog(null);
     setHistoryLogs([]);
     setRoutineModalDaysSince(null);
     setShowRoutineModal(true);
-    // Cargar historial en background
-    try {
-      const logs = await getLogs();
-      const routineLogs = logs
-        .filter(l=>l.workoutId===routine.id && l.completed)
-        .sort((a,b)=>b.date.localeCompare(a.date));
-      setHistoryLogs(routineLogs.slice(0,10));
-      if (routineLogs.length>0) {
-        const lastDate = routineLogs[0].date;
-        const today = new Date(); today.setHours(0,0,0,0);
-        const last  = new Date(lastDate); last.setHours(0,0,0,0);
-        setRoutineModalDaysSince(Math.round((today-last)/(1000*60*60*24)));
-      }
-    } catch { /* sin historial */ }
   }
 
   function routineFromDraft(draft = activeDraft) {

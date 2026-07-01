@@ -126,7 +126,12 @@ function RootApp() {
   // Listen for auth state changes
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, u => {
+      // undefined = auth todavía resolviendo; null = sin sesión; object = app segura.
+      // Nunca dejamos que pantallas con Firestore monten antes de tener usuario real.
       setUser(u || null);
+      setOnboarded(null);
+      setWeeklyReviewInfo(null);
+      setShowWeeklyReview(false);
       if (u) checkOnboarded();
     });
     return unsub;

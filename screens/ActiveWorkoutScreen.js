@@ -260,7 +260,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
     return () => sub?.remove?.();
   }, [log, completed]);
 
-  // Autosave debounced 900ms
+  // Autosave remoto debounced 3.5s
   useEffect(()=>{
     if (!log||!routine||completed) {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -289,7 +289,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         console.warn('autosave failed:',e);
         setAutoSaveState('error');
       }
-    },900);
+    },3500);
   },[log, routine?.id, completed]);
 
   // ─── ConfirmModal helpers ─────────────────────────────────

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   doc, collection, getDoc, setDoc, getDocs, deleteDoc, writeBatch,
+  query, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
@@ -27,6 +28,15 @@ function withTimeout(promise, ms = 6000, label = 'operacion') {
 async function getAll(colPath) {
   const snap = await getDocs(userCol(colPath));
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+function sortLogs(logs = []) {
+  return [...logs].sort((a, b) => {
+    const at = itemTime(a);
+    const bt = itemTime(b);
+    if (bt !== at) return bt - at;
+    return String(b.date || '').localeCompare(String(a.date || ''));
+  });
 }
 
 function localKey(name) {
@@ -299,12 +309,32 @@ export async function getLogs() {
     const remote = await withTimeout(getAll('logs'), 5000, 'logs');
     // Importante: elegir por updatedAt. Si el móvil guardó local y Firestore
     // todavía trae una versión vieja, NO dejamos que la versión vieja borre sets.
-    const merged = mergeById(remote, local);
+    const merged = sortLogs(mergeById(remote, local));
     await setLocalList('logs', merged);
     return merged;
   } catch {
-    return local;
+    return sortLogs(local);
   }
+}
+
+export function subscribeLogs(onChange, onError, maxItems = 60) {
+  if (!auth.currentUser) {
+    onChange?.([]);
+    return () => {};
+  }
+
+  const q = query(userCol('logs'), orderBy('date', 'desc'), limit(maxItems));
+  return onSnapshot(q, async (snap) => {
+    const remote = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const local = await getLocalList('logs');
+    const merged = sortLogs(mergeById(remote, local));
+    await setLocalList('logs', merged);
+    onChange?.(merged);
+  }, (error) => {
+    console.warn('subscribeLogs failed:', error?.message || error);
+    getLocalList('logs').then(local => onChange?.(sortLogs(local))).catch(() => {});
+    onError?.(error);
+  });
 }
 
 export async function saveLogDraft(log) {
