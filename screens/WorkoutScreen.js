@@ -13,12 +13,12 @@ import {
   getCustomRoutines, getLocalCustomRoutines,
   saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity, getWeightUnit,
-  shareRoutine, importSharedRoutine, getActiveSessionDraft, subscribeLogs,
+  shareRoutine, importSharedRoutine, getActiveSessionDraft, subscribeLogs, moveLogDate,
 } from '../storage';
 import {
   IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
   IconCheck, IconClose, IconCopy, IconDocument, IconDownload, IconEditar, IconEliminar, IconHistory,
-  IconMenuDots, IconRepeat, IconShare, IconStar, IconWarning,
+  IconTimer, IconMenuDots, IconRepeat, IconShare, IconStar, IconWarning,
 } from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
@@ -239,6 +239,262 @@ function calcLogVolume(log) {
   ,0);
 }
 
+
+function makeSessionUi(colors) {
+  return {
+    bg: colors.bg || '#0e0e0e',
+    card: colors.bgCard || '#1a1a1a',
+    field: colors.bgInput || '#111111',
+    border: colors.border || '#2a2a2a',
+    borderStrong: colors.purpleDim || '#333333',
+    accent: colors.lime || '#7fff00',
+    text: colors.white || '#f5f5f5',
+    muted: colors.gray || '#9b9b9b',
+    dim: colors.grayLight || '#6f6f6f',
+    danger: colors.danger || '#ff4d4d',
+  };
+}
+
+function sessionWorkoutName(log) {
+  return log?.workoutName || log?.routineName || log?.day || log?.name || 'Rutina';
+}
+
+function sessionCountSets(log) {
+  return (log?.exercises || []).reduce((n, ex) => n + (ex.sets || []).filter(st => st.done !== false).length, 0);
+}
+
+function sessionDuration(log) {
+  if (Number(log?.durationMinutes) > 0) return Math.round(Number(log.durationMinutes));
+  const start = Date.parse(log?.startedAt || '');
+  const end = Date.parse(log?.completedAt || log?.updatedAt || '');
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) return Math.max(1, Math.round((end - start) / 60000));
+  const ex = (log?.exercises || []).length;
+  const sets = sessionCountSets(log);
+  return ex || sets ? Math.max(18, ex * 8 + sets * 3) : 0;
+}
+
+function sessionDurationLabel(minutes) {
+  if (!minutes) return '—';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function sessionRepsSummary(ex) {
+  const sets = (ex.sets || []).filter(st => st.done !== false);
+  const reps = sets.map(st => st.reps || '—').join(' / ');
+  return reps || '—';
+}
+
+function sessionWeightSummary(ex) {
+  const sets = (ex.sets || []).filter(st => st.done !== false);
+  const weights = sets.map(st => `${st.weight || '—'} ${ex.unit || st.unit || 'kg'}`).join(' / ');
+  return weights || '—';
+}
+
+function SessionDetailView({ log, onBack, onSaveDate, colors }) {
+  const [editing, setEditing] = useState(false);
+  const [newDate, setNewDate] = useState(log?.date || TODAY);
+  const [savingDate, setSavingDate] = useState(false);
+  const [error, setError] = useState('');
+  const ui = useMemo(() => makeSessionUi(colors || {}), [colors]);
+  const styles = useMemo(() => createSessionStyles(ui), [ui]);
+
+  useEffect(() => {
+    setNewDate(log?.date || TODAY);
+    setEditing(false);
+    setError('');
+  }, [log?.id, log?.date]);
+
+  async function saveDate() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+      setError('Usá formato YYYY-MM-DD. Sí, aburrido, pero confiable.');
+      return;
+    }
+    setSavingDate(true);
+    setError('');
+    try {
+      await onSaveDate(newDate);
+      setEditing(false);
+    } catch (e) {
+      console.warn('save session date failed:', e);
+      setError('No se pudo guardar la fecha. Panchita culpa al WiFi.');
+    } finally {
+      setSavingDate(false);
+    }
+  }
+
+  const exercises = log?.exercises || [];
+  const totalSets = sessionCountSets(log);
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.75}>
+          <IconBack size={16} color={ui.accent} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.title} numberOfLines={2}>Session · {sessionWorkoutName(log)}</Text>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.dateRow}>
+            <View>
+              <Text style={styles.label}>date</Text>
+              <Text style={styles.dateText}>{formatDateDisplay(log?.date)}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.8}>
+              <IconEditar size={15} color={ui.accent} />
+              <Text style={styles.editText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.statGrid}>
+            <View style={styles.statBox}><IconTimer size={16} color={ui.accent} /><Text style={styles.statValue}>{sessionDurationLabel(sessionDuration(log))}</Text><Text style={styles.statLabel}>duration</Text></View>
+            <View style={styles.statBox}><IconDocument size={16} color={ui.accent} /><Text style={styles.statValue}>{exercises.length}</Text><Text style={styles.statLabel}>exercises</Text></View>
+            <View style={styles.statBox}><IconCheck size={16} color={ui.accent} /><Text style={styles.statValue}>{totalSets}</Text><Text style={styles.statLabel}>sets</Text></View>
+          </View>
+
+          {editing && (
+            <View style={styles.inlineEditor}>
+              <Text style={styles.editorTitle}>Cambiar fecha</Text>
+              <View style={styles.readOnlyRow}>
+                <Text style={styles.label}>current date</Text>
+                <Text style={styles.readOnlyText}>{formatDateDisplay(log?.date)}</Text>
+              </View>
+              <Text style={styles.label}>new date</Text>
+              <TextInput
+                value={newDate}
+                onChangeText={setNewDate}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={ui.dim}
+                style={styles.dateInput}
+                keyboardType="numbers-and-punctuation"
+              />
+              <Text style={styles.note}>Solo se cambia la fecha. Los ejercicios, sets y pesos quedan intactos.</Text>
+              {!!error && <Text style={styles.errorText}>{error}</Text>}
+              <View style={styles.editorActions}>
+                <TouchableOpacity style={[styles.editorBtn, styles.cancelBtn]} onPress={() => { setEditing(false); setNewDate(log?.date || TODAY); setError(''); }} disabled={savingDate}>
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.editorBtn, styles.saveBtn, savingDate && { opacity: 0.65 }]} onPress={saveDate} disabled={savingDate}>
+                  {savingDate ? <ActivityIndicator size="small" color={ui.bg} /> : <Text style={styles.saveText}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+
+        <Text style={styles.sectionTitle}>Exercises</Text>
+        {exercises.length === 0 ? (
+          <View style={styles.exerciseCard}><Text style={styles.metaText}>Esta sesión no tiene ejercicios guardados.</Text></View>
+        ) : exercises.map((ex, idx) => {
+          const sets = (ex.sets || []).filter(st => st.done !== false);
+          return (
+            <View key={`${ex.name}_${idx}`} style={styles.exerciseCard}>
+              <View style={styles.exerciseHead}>
+                <Text style={styles.exerciseName} numberOfLines={1}>{ex.name || `Ejercicio ${idx + 1}`}</Text>
+                <Text style={styles.setPill}>{sets.length} sets</Text>
+              </View>
+              <View style={styles.exerciseMetaRow}>
+                <View style={styles.metaBox}><Text style={styles.label}>reps</Text><Text style={styles.metaText}>{sessionRepsSummary(ex)}</Text></View>
+                <View style={styles.metaBox}><Text style={styles.label}>weight</Text><Text style={styles.metaText}>{sessionWeightSummary(ex)}</Text></View>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function SessionHistoryListView({ logs, colors, onBack, onOpen }) {
+  const ui = useMemo(() => makeSessionUi(colors || {}), [colors]);
+  const styles = useMemo(() => createSessionListStyles(ui), [ui]);
+  const sessions = useMemo(() => [...(logs || [])]
+    .filter(l => l.completed)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))), [logs]);
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.75}>
+          <IconBack size={16} color={ui.accent} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Recent sessions</Text>
+        {sessions.length === 0 ? (
+          <View style={styles.card}><Text style={styles.meta}>No hay sesiones guardadas todavía.</Text></View>
+        ) : sessions.map(log => (
+          <TouchableOpacity key={log.id || `${log.date}_${log.workoutId}`} style={styles.row} onPress={() => onOpen(log)} activeOpacity={0.75}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.name} numberOfLines={1}>{sessionWorkoutName(log)}</Text>
+              <Text style={styles.meta}>{formatLogDate(log.date)} · {(log.exercises || []).length} ejercicios · {sessionDurationLabel(sessionDuration(log))}</Text>
+            </View>
+            <IconArrow size={14} color={ui.muted} />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function createSessionListStyles(ui) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: ui.bg },
+    scroll: { padding: 16, paddingBottom: 34 },
+    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 },
+    backText: { color: ui.accent, fontSize: 11, fontWeight: '800' },
+    title: { color: ui.text, fontSize: 15, fontWeight: '900', marginBottom: 12 },
+    card: { backgroundColor: ui.card, borderRadius: 14, borderWidth: 0.5, borderColor: ui.border, padding: 14 },
+    row: { backgroundColor: ui.card, borderRadius: 12, borderWidth: 0.5, borderColor: ui.border, padding: 12, marginBottom: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    name: { color: ui.text, fontSize: 13, fontWeight: '800' },
+    meta: { color: ui.muted, fontSize: 10, marginTop: 4 },
+  });
+}
+
+function createSessionStyles(ui) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: ui.bg },
+    scroll: { padding: 16, paddingBottom: 34 },
+    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 },
+    backText: { color: ui.accent, fontSize: 11, fontWeight: '800' },
+    title: { color: ui.text, fontSize: 15, fontWeight: '900', marginBottom: 12 },
+    summaryCard: { backgroundColor: ui.card, borderRadius: 14, borderWidth: 0.5, borderColor: ui.border, padding: 13, marginBottom: 14 },
+    dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 },
+    label: { color: ui.muted, fontSize: 9, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+    dateText: { color: ui.text, fontSize: 13, fontWeight: '800', marginTop: 4 },
+    editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 0.5, borderColor: ui.borderStrong, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+    editText: { color: ui.accent, fontSize: 10, fontWeight: '800' },
+    statGrid: { flexDirection: 'row', gap: 8 },
+    statBox: { flex: 1, backgroundColor: ui.field, borderRadius: 10, borderWidth: 0.5, borderColor: ui.border, padding: 10, alignItems: 'center' },
+    statValue: { color: ui.text, fontSize: 13, fontWeight: '900', marginTop: 5 },
+    statLabel: { color: ui.muted, fontSize: 9, marginTop: 2 },
+    inlineEditor: { marginTop: 12, borderTopWidth: 0.5, borderTopColor: ui.border, paddingTop: 12 },
+    editorTitle: { color: ui.text, fontSize: 13, fontWeight: '800', marginBottom: 10 },
+    readOnlyRow: { backgroundColor: ui.field, borderRadius: 8, borderWidth: 0.5, borderColor: ui.border, padding: 10, marginBottom: 10 },
+    readOnlyText: { color: ui.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
+    dateInput: { marginTop: 6, borderRadius: 8, borderWidth: 1, borderColor: ui.accent, backgroundColor: ui.field, color: ui.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontWeight: '800' },
+    note: { color: ui.muted, fontSize: 10, lineHeight: 15, marginTop: 8 },
+    errorText: { color: ui.danger, fontSize: 10, marginTop: 8, fontWeight: '700' },
+    editorActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+    editorBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+    cancelBtn: { backgroundColor: ui.field, borderWidth: 0.5, borderColor: ui.borderStrong },
+    saveBtn: { backgroundColor: ui.accent },
+    cancelText: { color: ui.muted, fontSize: 11, fontWeight: '800' },
+    saveText: { color: ui.bg, fontSize: 11, fontWeight: '900' },
+    sectionTitle: { color: ui.text, fontSize: 14, fontWeight: '900', marginBottom: 8 },
+    exerciseCard: { backgroundColor: ui.card, borderRadius: 12, borderWidth: 0.5, borderColor: ui.border, padding: 12, marginBottom: 9 },
+    exerciseHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 9 },
+    exerciseName: { color: ui.text, fontSize: 13, fontWeight: '800', flex: 1 },
+    setPill: { color: ui.accent, fontSize: 10, fontWeight: '800', borderWidth: 0.5, borderColor: ui.borderStrong, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+    exerciseMetaRow: { flexDirection: 'row', gap: 8 },
+    metaBox: { flex: 1, backgroundColor: ui.field, borderRadius: 8, borderWidth: 0.5, borderColor: ui.border, padding: 9 },
+    metaText: { color: ui.text, fontSize: 11, fontWeight: '700', marginTop: 4 },
+  });
+}
+
 // ─── Componente principal ──────────────────────────────────
 export default function WorkoutScreen({ navigation, route }) {
   const { colors } = useTheme();
@@ -312,6 +568,9 @@ export default function WorkoutScreen({ navigation, route }) {
   const [showHistoryView, setShowHistoryView]         = useState(false);
   const [historyLogs, setHistoryLogs]                 = useState([]);
   const [historyDetailLog, setHistoryDetailLog]       = useState(null);
+  const [sessionDetailLog, setSessionDetailLog]       = useState(null);
+  const [showAllSessions, setShowAllSessions]         = useState(false);
+  const [allSessionLogs, setAllSessionLogs]           = useState([]);
   const [activeDraft, setActiveDraft]                 = useState(null);
 
   // Registrar sesión pasada
@@ -375,6 +634,29 @@ export default function WorkoutScreen({ navigation, route }) {
   function selectedPastIso() {
     const d = pastDays[pastSafeDayIdx] || 1;
     return `${pastSelectedYear}-${String(pastSelectedMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+
+  function openSessionDetailView(sessionLog) {
+    if (!sessionLog) return;
+    setSessionDetailLog(sessionLog);
+    setHistoryDetailLog(null);
+    setShowHistoryView(false);
+    setShowRoutineModal(false);
+  }
+
+  async function saveSessionDetailDate(newDate) {
+    const updated = await moveLogDate(sessionDetailLog, newDate);
+    setSessionDetailLog(updated);
+    const refreshed = await getLogs().catch(() => []);
+    setAllSessionLogs(refreshed);
+    await loadAll();
+  }
+
+  async function openAllSessionsView() {
+    const refreshed = await getLogs().catch(() => []);
+    setAllSessionLogs(refreshed);
+    setShowAllSessions(true);
+    setShowRoutineModal(false);
   }
 
   function applyRoutineHistory(routine, logs = []) {
@@ -443,6 +725,29 @@ export default function WorkoutScreen({ navigation, route }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[route?.params?.selectRoutineId, customRoutines.length]);
+
+  // Abrir historial completo o detalle desde Inicio.
+  useEffect(()=>{
+    if (route?.params?.showHistory) {
+      openAllSessionsView();
+      navigation.setParams({ showHistory: undefined });
+    }
+  }, [route?.params?.showHistory]);
+
+  useEffect(()=>{
+    const openId = route?.params?.openSessionId;
+    if (!openId) return;
+    let alive = true;
+    getLogs().then(logs => {
+      if (!alive) return;
+      const found = logs.find(l => l.id === openId)
+        || logs.find(l => l.workoutId === route?.params?.openSessionWorkoutId && l.id === openId);
+      if (found) openSessionDetailView(found);
+      navigation.setParams({ openSessionId: undefined, openSessionWorkoutId: undefined });
+    }).catch(error => console.warn('open session detail failed:', error));
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.openSessionId]);
 
   // Nota: la unidad global (weightUnit) solo es el default para ejercicios nuevos.
   // Cada ejercicio tiene su propia unidad (ex.unit). Ver T2.
@@ -1161,6 +1466,28 @@ ${shareCode}` });
   },[customRoutines, lastUsedMap]);
 
   // ─── Render ──────────────────────────────────────────────
+  if (sessionDetailLog) {
+    return (
+      <SessionDetailView
+        log={sessionDetailLog}
+        colors={colors}
+        onBack={() => setSessionDetailLog(null)}
+        onSaveDate={saveSessionDetailDate}
+      />
+    );
+  }
+
+  if (showAllSessions) {
+    return (
+      <SessionHistoryListView
+        logs={allSessionLogs}
+        colors={colors}
+        onBack={() => setShowAllSessions(false)}
+        onOpen={openSessionDetailView}
+      />
+    );
+  }
+
   if (activeWorkoutRoutine) {
     return (
       <ActiveWorkoutScreen
@@ -1510,7 +1837,7 @@ ${shareCode}` });
                 ):(
                   <ScrollView style={{maxHeight:340}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     {historyLogs.map((hl,i)=>(
-                      <TouchableOpacity key={i} style={[s.recExList,{marginBottom:8,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}]} onPress={()=>setHistoryDetailLog(hl)}>
+                      <TouchableOpacity key={i} style={[s.recExList,{marginBottom:8,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}]} onPress={()=>openSessionDetailView(hl)}>
                         <View style={{flex:1}}>
                           <Text style={{color:colors.white,fontWeight:'700',fontSize:14}}>{formatLogDate(hl.date)}</Text>
                           <Text style={{color:colors.gray,fontSize:12,marginTop:2}}>

@@ -399,6 +399,38 @@ export async function saveLog(log) {
   return normalized;
 }
 
+
+export async function moveLogDate(log, newDate) {
+  if (!log || !newDate) throw new Error('Missing log/date');
+  const oldId = log.id || `${log.date || newDate}_${log.workoutId || 'session'}`;
+  const updated = normalizeLogForStorage({
+    ...log,
+    id: `${newDate}_${log.workoutId || log.id || 'session'}`,
+    date: newDate,
+    editedAt: new Date().toISOString(),
+  });
+
+  const local = await getLocalList('logs');
+  const withoutOld = local.filter(item => {
+    const itemId = item.id || `${item.date || ''}_${item.workoutId || 'session'}`;
+    return itemId !== oldId && itemId !== updated.id;
+  });
+  await setLocalList('logs', sortLogs([updated, ...withoutOld]));
+
+  withTimeout(
+    setDoc(doc(userCol('logs'), updated.id), updated, { merge: true }),
+    6500,
+    'moveLogDateSave'
+  ).catch(error => console.warn('Remote log date update failed:', error));
+
+  if (oldId !== updated.id) {
+    withTimeout(deleteDoc(doc(userCol('logs'), oldId)), 6500, 'moveLogDateDelete')
+      .catch(error => console.warn('Remote old log delete failed:', error));
+  }
+
+  return updated;
+}
+
 export async function getLastLog(workoutId) {
   const logs = await getLogs();
   return logs.filter(l => l.workoutId === workoutId && l.completed)

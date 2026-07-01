@@ -1,284 +1,272 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { RADIUS } from '../constants/theme';
+import { getUser, getLogs } from '../storage';
 import { useTheme } from '../contexts/ThemeContext';
-import { getUser, getWeekActivity, getLogs, getWeekSchedule } from '../storage';
-import { IconArrow, IconMessage, IconMuscle, IconSleep } from '../components/icons';
-
-// Días: getDay() → 0=Dom,1=Lun,...,6=Sáb → claves del schedule
-const DAY_KEYS_BY_GETDAY = ['D','L','M','X','J','V','S'];
 import Panchita from '../components/Panchita';
+import { IconArrow, IconCalendar, IconCheck, IconHistory, IconTimer } from '../components/icons';
 
-const DAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-
-const INSIGHT_PHRASES = {
-  idle: [
-    'Aquí esperando... como siempre.',
-    '¿Hoy entrenamos o solo miramos la app?',
-    'El sofá no construye músculo. Por si acaso.',
-  ],
-  happy: [
-    '¡Hoy ya entrenaste! Descansá y comé bien.',
-    'Sesión completada. Panchita está... impresionada.',
-    '¡Buen trabajo hoy! Mañana volvemos.',
-  ],
-  angry: [
-    'No estoy enojada. Estoy decepcionada. Que es peor.',
-    'El gimnasio pregunta por vos.',
-    'Esto no es descanso. Esto es abandono.',
-  ],
-};
-
-function getHomeMood(logs) {
-  const today = new Date().toISOString().split('T')[0];
-  const last = logs.filter(l => l.completed).sort((a, b) => b.date.localeCompare(a.date))[0];
-  if (!last) return 'idle';
-  const days = Math.floor((new Date(today) - new Date(last.date)) / (1000 * 60 * 60 * 24));
-  if (days === 0) return 'happy';
-  if (days > 2)  return 'angry';
-  return 'idle';
+function makeUi(colors) {
+  return {
+    bg: colors.bg || '#0e0e0e',
+    card: colors.bgCard || '#1a1a1a',
+    field: colors.bgInput || '#111111',
+    border: colors.border || '#2a2a2a',
+    borderStrong: colors.purpleDim || '#333333',
+    accent: colors.lime || '#7fff00',
+    text: colors.white || '#f5f5f5',
+    muted: colors.gray || '#9b9b9b',
+    dim: colors.grayLight || '#6f6f6f',
+  };
 }
 
-function randomPhrase(mood) {
-  const arr = INSIGHT_PHRASES[mood] || INSIGHT_PHRASES.idle;
-  return arr[Math.floor(Math.random() * arr.length)];
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(`${dateStr}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function itemTime(item) {
+  const raw = item?.completedAt || item?.updatedAt || item?.savedAt || item?.createdAt || item?.date || '';
+  const t = raw ? Date.parse(raw) : 0;
+  return Number.isFinite(t) ? t : 0;
+}
+
+function completedLogs(logs = []) {
+  return [...logs]
+    .filter(l => l?.completed)
+    .sort((a, b) => {
+      const dateCmp = String(b.date || '').localeCompare(String(a.date || ''));
+      return dateCmp || (itemTime(b) - itemTime(a));
+    });
+}
+
+function countSets(log) {
+  return (log?.exercises || []).reduce((n, ex) => n + (ex.sets || []).filter(st => st.done !== false).length, 0);
+}
+
+function countExercises(log) {
+  return (log?.exercises || []).length;
+}
+
+function estimateDuration(log) {
+  if (!log) return 0;
+  if (Number(log.durationMinutes) > 0) return Math.round(Number(log.durationMinutes));
+  const start = Date.parse(log.startedAt || '');
+  const end = Date.parse(log.completedAt || log.updatedAt || '');
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    return Math.max(1, Math.round((end - start) / 60000));
+  }
+  const ex = countExercises(log);
+  const sets = countSets(log);
+  if (!ex && !sets) return 0;
+  return Math.max(18, ex * 8 + sets * 3);
+}
+
+function durationLabel(minutes) {
+  if (!minutes) return '—';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function dateShort(dateStr) {
+  const d = parseDate(dateStr);
+  if (!d) return '—';
+  return d.toLocaleDateString('es-CR', { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+function daysAgo(dateStr) {
+  const d = parseDate(dateStr);
+  if (!d) return 'sin fecha';
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const diff = Math.round((today - d) / 86400000);
+  if (diff <= 0) return 'hoy';
+  if (diff === 1) return 'ayer';
+  return `hace ${diff} días`;
+}
+
+function calcStreak(logs = []) {
+  const days = new Set(logs.filter(l => l.completed && l.date).map(l => l.date));
+  let streak = 0;
+  const cursor = new Date(); cursor.setHours(12, 0, 0, 0);
+  while (true) {
+    const key = cursor.toISOString().split('T')[0];
+    if (!days.has(key)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function weekStats(logs = []) {
+  const now = new Date(); now.setHours(12, 0, 0, 0);
+  const start = new Date(now); start.setDate(now.getDate() - 6);
+  const recent = logs.filter(l => {
+    const d = parseDate(l.date);
+    return l.completed && d && d >= start && d <= now;
+  });
+  const days = new Set(recent.map(l => l.date));
+  const totalTime = recent.reduce((sum, log) => sum + estimateDuration(log), 0);
+  return { sessions: days.size, totalTime, streak: calcStreak(logs) };
+}
+
+function workoutName(log) {
+  return log?.workoutName || log?.routineName || log?.day || log?.name || 'Rutina';
 }
 
 export default function HomeScreen({ navigation }) {
   const { colors } = useTheme();
-  const s = useMemo(() => createStyles(colors), [colors]);
+  const ui = useMemo(() => makeUi(colors), [colors]);
+  const [user, setUser] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const s = useMemo(() => createStyles(ui), [ui]);
 
-  const [user, setUser]                   = useState(null);
-  const [weekActivity, setWeekActivity]   = useState([]);
-  const [insight, setInsight]             = useState(randomPhrase('idle'));
-  const [streak, setStreak]               = useState(0);
-  const [totalSessions, setTotalSessions] = useState(0);
-  const [mood, setMood]                   = useState('idle');
-  const [todaySchedule, setTodaySchedule] = useState(undefined); // undefined=cargando, null=no asignado, 'rest', {id,name}
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    Promise.all([getUser(), getLogs()])
+      .then(([u, l]) => {
+        if (!alive) return;
+        setUser(u);
+        setLogs(completedLogs(l));
+      })
+      .catch(error => console.warn('Home load failed:', error));
+    return () => { alive = false; };
+  }, []));
 
-  useFocusEffect(useCallback(() => { loadData(); }, []));
+  const recent = logs.slice(0, 3);
+  const last = recent[0] || null;
+  const stats = weekStats(logs);
+  const firstName = (user?.name || 'atleta').trim().split(/\s+/)[0];
 
-  async function loadData() {
-    try {
-      const [u, activity, logs, schedule] = await Promise.all([
-        getUser(), getWeekActivity(), getLogs(),
-        getWeekSchedule().catch(()=>({})),
-      ]);
-      setUser(u);
-      setWeekActivity(activity);
-      const m = getHomeMood(logs);
-      setMood(m);
-      setInsight(randomPhrase(m));
-      setTotalSessions(logs.filter(l => l.completed).length);
-      let s = 0;
-      for (const day of [...activity].reverse()) {
-        if (day.trained) s++; else break;
-      }
-      setStreak(s);
-      // T3 — programación semanal: leer el día de hoy
-      const todayKey = DAY_KEYS_BY_GETDAY[new Date().getDay()];
-      setTodaySchedule(schedule[todayKey] ?? null);
-    } catch (e) {
-      console.log('HomeScreen loadData error:', e);
-      setInsight(randomPhrase('idle'));
-      setTodaySchedule(null);
-    }
+  function startSession() {
+    if (last?.workoutId) navigation.navigate('Workout', { selectRoutineId: last.workoutId });
+    else navigation.navigate('Workout');
   }
 
-  const greeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return 'Buenos días';
-    if (h < 18) return 'Buenas tardes';
-    return 'Buenas noches';
-  };
+  function openSession(log) {
+    navigation.navigate('Workout', { openSessionId: log.id, openSessionWorkoutId: log.workoutId });
+  }
 
   return (
     <SafeAreaView style={s.safe}>
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* Header */}
         <View style={s.header}>
-          <View>
-            <Text style={s.greeting}>{greeting()},</Text>
-            <Text style={s.name}>{user?.name || 'atleta'}</Text>
-          </View>
-          <View style={s.streakBadge}>
-            <Text style={s.streakNum}>{streak}</Text>
-            <Text style={s.streakLabel}>racha</Text>
-          </View>
+          <Text style={s.hello}>Hola, {firstName}</Text>
+          <Text style={s.meta}>Tu resumen de entrenamiento</Text>
         </View>
 
-        {/* Panchita insight card */}
-        <View style={s.insightCard}>
-          <View style={s.insightRow}>
-            {/* Panchita ‚Äî ocupa toda la altura de la fila */}
-            <Panchita
-              state={mood === 'idle' || mood === 'neutral' ? 'waveLoop' : mood}
-              size={130}
-              autoWave={false}
-              onIdle={() => setMood('idle')}
-            />
-            {/* Columna derecha: globo + botón */}
-            <View style={s.insightRight}>
-              <View style={s.insightBubble}>
-                <Text style={s.insightText}>{insight}</Text>
-              </View>
-              <TouchableOpacity onPress={() => navigation.navigate('Coach')}>
-                <View style={s.linkRow}><Text style={s.insightBtnText}>Hablar con Panchita</Text><IconArrow size={13} color={colors.purpleLight} /></View>
-              </TouchableOpacity>
-            </View>
+        <View style={s.panchitaCard}>
+          <Panchita state={stats.streak > 0 ? 'happy' : 'idle'} size={74} autoWave={false} />
+          <View style={s.panchitaTextWrap}>
+            <Text style={s.cardTitle}>Panchita dice</Text>
+            <Text style={s.panchitaMsg}>
+              {stats.streak > 0
+                ? `${stats.streak} día${stats.streak === 1 ? '' : 's'} de racha. Casi parece disciplina.`
+                : 'Todavía no hay racha. El sofá sigue ganando por decisión unánime.'}
+            </Text>
           </View>
         </View>
 
-        {/* T3 — Entrenamiento de hoy */}
-        {todaySchedule !== undefined && (
-          todaySchedule === 'rest' ? (
-            <View style={s.todayCard}>
-              <View style={s.todayCardIcon}><IconSleep size={27} color={colors.grayLight} /></View>
-              <View style={{flex:1}}>
-                <Text style={s.todayCardTitle}>Hoy descansás.</Text>
-                <Text style={s.todayCardSub}>O eso dijiste.</Text>
-              </View>
-            </View>
-          ) : todaySchedule ? (
-            <View style={s.todayCard}>
-              <View style={s.todayCardIcon}><IconMuscle size={27} color={colors.purpleLight} /></View>
-              <View style={{flex:1}}>
-                <Text style={s.todayCardTitle}>Hoy toca: {todaySchedule.name}</Text>
-                <Text style={s.todayCardSub}>¿Arrancamos?</Text>
-              </View>
-              <TouchableOpacity
-                style={s.todayCardBtn}
-                onPress={()=>navigation.navigate('Workout',{selectRoutineId:todaySchedule.id})}
-              >
-                <View style={s.btnRow}><Text style={s.todayCardBtnTxt}>Ir</Text><IconArrow size={12} color="#fff" /></View>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={[s.todayCard,{opacity:0.7}]}>
-              <View style={s.todayCardIcon}><IconMessage size={27} color={colors.purpleLight} /></View>
-              <View style={{flex:1}}>
-                <Text style={s.todayCardTitle}>¿Qué entrenás hoy?</Text>
-                <Text style={s.todayCardSub}>No hay rutina asignada</Text>
-              </View>
-              <TouchableOpacity
-                style={s.todayCardBtn}
-                onPress={()=>navigation.navigate('Workout')}
-              >
-                <View style={s.btnRow}><Text style={s.todayCardBtnTxt}>Ver</Text><IconArrow size={12} color="#fff" /></View>
-              </TouchableOpacity>
-            </View>
-          )
-        )}
+        <TouchableOpacity style={s.startCard} onPress={startSession} activeOpacity={0.85}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.startLabel}>Start session</Text>
+            <Text style={s.startTitle}>{last ? workoutName(last) : 'Elegí una rutina'}</Text>
+            <Text style={s.startMeta}>{last ? `Última vez: ${daysAgo(last.date)}` : 'Primera sesión pendiente'}</Text>
+          </View>
+          <View style={s.startIcon}><IconArrow size={18} color={ui.bg} /></View>
+        </TouchableOpacity>
 
-        {/* Actividad semanal */}
-        <Text style={s.sectionTitle}>Esta semana</Text>
-        <View style={s.weekCard}>
-          {weekActivity.map((day, i) => {
-            const isToday = i === weekActivity.length - 1;
-            const dow = new Date(day.date + 'T12:00:00').getDay();
-            return (
-              <View key={i} style={s.dayCol}>
-                <View style={[s.dayBar, day.trained && s.dayBarActive, isToday && !day.trained && s.dayBarToday]}>
-                  {day.trained && <View style={s.dayBarFill} />}
-                </View>
-                <Text style={[s.dayLabel, isToday && s.dayLabelToday]}>
-                  {DAY_LABELS[dow === 0 ? 6 : dow - 1]}
-                </Text>
-              </View>
-            );
-          })}
+        <View style={s.sectionHead}>
+          <Text style={s.sectionTitle}>Recent sessions</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Workout', { showHistory: true })}>
+            <Text style={s.seeAll}>See all</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Stats */}
+        <View style={s.recentCard}>
+          {recent.length === 0 ? (
+            <View style={s.emptyRecent}>
+              <IconHistory size={20} color={ui.dim} />
+              <Text style={s.emptyText}>Sin sesiones todavía. Panchita está tomando nota.</Text>
+            </View>
+          ) : recent.map(log => (
+            <TouchableOpacity key={log.id || `${log.date}_${log.workoutId}`} style={s.sessionRow} onPress={() => openSession(log)} activeOpacity={0.75}>
+              <View style={s.datePill}>
+                <Text style={s.dateText}>{dateShort(log.date)}</Text>
+              </View>
+              <View style={s.sessionInfo}>
+                <Text style={s.sessionName} numberOfLines={1}>{workoutName(log)}</Text>
+                <Text style={s.sessionMeta}>{countExercises(log)} ejercicios · {durationLabel(estimateDuration(log))}</Text>
+              </View>
+              <IconArrow size={14} color={ui.dim} />
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <View style={s.statsRow}>
           <View style={s.statCard}>
-            <Text style={s.statNum}>{totalSessions}</Text>
-            <Text style={s.statLabel}>sesiones totales</Text>
+            <IconCalendar size={17} color={ui.accent} />
+            <Text style={s.statValue}>{stats.sessions}</Text>
+            <Text style={s.statLabel}>sesiones</Text>
           </View>
           <View style={s.statCard}>
-            <Text style={s.statNum}>{streak}</Text>
-            <Text style={s.statLabel}>días seguidos</Text>
+            <IconTimer size={17} color={ui.accent} />
+            <Text style={s.statValue}>{durationLabel(stats.totalTime)}</Text>
+            <Text style={s.statLabel}>tiempo</Text>
           </View>
           <View style={s.statCard}>
-            <Text style={s.statNum}>{weekActivity.filter(d => d.trained).length}</Text>
-            <Text style={s.statLabel}>esta semana</Text>
+            <IconCheck size={17} color={ui.accent} />
+            <Text style={s.statValue}>{stats.streak}</Text>
+            <Text style={s.statLabel}>racha</Text>
           </View>
         </View>
-
-        <TouchableOpacity style={s.trainBtn} onPress={() => navigation.navigate('Workout')}>
-          <View style={s.trainBtnRow}><Text style={s.trainBtnText}>Ir a entrenar hoy</Text><IconArrow size={15} color="#fff" /></View>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function createStyles(colors) {
+function createStyles(ui) {
   return StyleSheet.create({
-    safe:           { flex: 1, backgroundColor: colors.bg },
-    scroll:         { padding: 20, paddingBottom: 40 },
-    header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, marginTop: 8 },
-    greeting:       { fontSize: 14, color: colors.gray },
-    name:           { fontSize: 26, fontWeight: '700', color: colors.white },
-    streakBadge:    {
-      backgroundColor: colors.purpleDim, borderRadius: RADIUS.lg,
-      paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center',
-      borderWidth: 1, borderColor: colors.purple,
-    },
-    streakNum:      { fontSize: 22, fontWeight: '700', color: colors.lime },
-    streakLabel:    { fontSize: 10, color: colors.purpleLight, marginTop: 1 },
-    insightCard:    {
-      backgroundColor: colors.bgCard, borderRadius: RADIUS.lg,
-      paddingTop: 0, paddingRight: 16, paddingBottom: 16, paddingLeft: 0,
-      marginBottom: 24, borderWidth: 1, borderColor: colors.purpleDim,
-      overflow: 'visible',
-    },
-    insightRow:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    insightRight:   { flex: 1, gap: 10 },
-    insightBubble:  {
-      backgroundColor: colors.purpleDim, borderRadius: RADIUS.md,
-      borderTopLeftRadius: 4, padding: 14,
-    },
-    insightText:    { fontSize: 15, color: colors.white, lineHeight: 21, fontWeight: '700' },
-    insightBtnText: { fontSize: 13, color: colors.purpleLight, fontWeight: '600', textAlign: 'right' },
-    linkRow:        { flexDirection:'row', alignItems:'center', justifyContent:'flex-end', gap:4 },
-    sectionTitle:   { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 12 },
-    weekCard:       {
-      backgroundColor: colors.bgCard, borderRadius: RADIUS.lg, padding: 20,
-      flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20,
-    },
-    dayCol:         { alignItems: 'center', gap: 8 },
-    dayBar:         { width: 28, height: 64, borderRadius: RADIUS.sm, backgroundColor: colors.bgInput, justifyContent: 'flex-end', overflow: 'hidden' },
-    dayBarActive:   { backgroundColor: colors.purpleDim },
-    dayBarToday:    { borderWidth: 1, borderColor: colors.purple },
-    dayBarFill:     { height: '100%', backgroundColor: colors.purple, borderRadius: RADIUS.sm },
-    dayLabel:       { fontSize: 12, color: colors.gray, fontWeight: '500' },
-    dayLabelToday:  { color: colors.purpleLight },
-    statsRow:       { flexDirection: 'row', gap: 12, marginBottom: 24 },
-    statCard:       { flex: 1, backgroundColor: colors.bgCard, borderRadius: RADIUS.md, padding: 14, alignItems: 'center' },
-    statNum:        { fontSize: 24, fontWeight: '700', color: colors.lime },
-    statLabel:      { fontSize: 11, color: colors.gray, marginTop: 2, textAlign: 'center' },
-    trainBtn:       { backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 18, alignItems: 'center' },
-    trainBtnRow:    { flexDirection:'row', alignItems:'center', gap:6 },
-    trainBtnText:   { color: '#ffffff', fontWeight: '700', fontSize: 16 },
-
-    // T3 — tarjeta entrenamiento de hoy
-    todayCard: {
-      backgroundColor: colors.bgCard, borderRadius: RADIUS.lg,
-      padding: 14, marginBottom: 20, borderWidth: 1, borderColor: colors.purple,
+    safe: { flex: 1, backgroundColor: ui.bg },
+    scroll: { padding: 16, paddingBottom: 28 },
+    header: { marginTop: 6, marginBottom: 14 },
+    hello: { color: ui.text, fontSize: 15, fontWeight: '800' },
+    meta: { color: ui.muted, fontSize: 11, marginTop: 3 },
+    panchitaCard: {
       flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: ui.card, borderRadius: 14, borderWidth: 0.5, borderColor: ui.border,
+      paddingVertical: 12, paddingHorizontal: 12, marginBottom: 12,
     },
-    todayCardIcon:  { width:34, height:34, borderRadius:17, backgroundColor:colors.bgInput, alignItems:'center', justifyContent:'center' },
-    todayCardTitle: { fontSize: 15, fontWeight: '700', color: colors.white },
-    todayCardSub:   { fontSize: 12, color: colors.gray, marginTop: 2 },
-    todayCardBtn: {
-      backgroundColor: colors.purple, borderRadius: RADIUS.full,
-      paddingVertical: 8, paddingHorizontal: 14,
+    panchitaTextWrap: { flex: 1 },
+    cardTitle: { color: ui.accent, fontSize: 11, fontWeight: '800', marginBottom: 4 },
+    panchitaMsg: { color: ui.text, fontSize: 13, lineHeight: 18, fontWeight: '600' },
+    startCard: {
+      backgroundColor: ui.accent, borderRadius: 14, padding: 15, marginBottom: 18,
+      flexDirection: 'row', alignItems: 'center', borderWidth: 0.5, borderColor: ui.accent,
     },
-    btnRow: { flexDirection:'row', alignItems:'center', gap:4 },
-    todayCardBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 13 },
+    startLabel: { color: '#1a1a1a', fontSize: 9, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.7 },
+    startTitle: { color: ui.bg, fontSize: 15, fontWeight: '900', marginTop: 5 },
+    startMeta: { color: '#263018', fontSize: 10, fontWeight: '700', marginTop: 4 },
+    startIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(14,14,14,0.12)' },
+    sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    sectionTitle: { color: ui.text, fontSize: 15, fontWeight: '800' },
+    seeAll: { color: ui.accent, fontSize: 11, fontWeight: '800' },
+    recentCard: { backgroundColor: ui.card, borderRadius: 14, borderWidth: 0.5, borderColor: ui.border, overflow: 'hidden', marginBottom: 12 },
+    sessionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: ui.border },
+    datePill: { width: 48, borderRadius: 8, borderWidth: 0.5, borderColor: ui.borderStrong, paddingVertical: 6, alignItems: 'center', backgroundColor: ui.field },
+    dateText: { color: ui.accent, fontSize: 10, fontWeight: '800', textTransform: 'lowercase' },
+    sessionInfo: { flex: 1 },
+    sessionName: { color: ui.text, fontSize: 13, fontWeight: '800' },
+    sessionMeta: { color: ui.muted, fontSize: 10, marginTop: 3 },
+    emptyRecent: { padding: 18, alignItems: 'center', gap: 8 },
+    emptyText: { color: ui.muted, fontSize: 11, textAlign: 'center' },
+    statsRow: { flexDirection: 'row', gap: 8 },
+    statCard: { flex: 1, backgroundColor: ui.card, borderRadius: 12, borderWidth: 0.5, borderColor: ui.border, paddingVertical: 12, alignItems: 'center' },
+    statValue: { color: ui.text, fontSize: 14, fontWeight: '900', marginTop: 6 },
+    statLabel: { color: ui.muted, fontSize: 9, marginTop: 2 },
   });
 }
