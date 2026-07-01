@@ -1946,6 +1946,9 @@ ${shareCode}` });
         <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
           <IconStar size={20} color={colors.lime} />
         </TouchableOpacity>
+        <TouchableOpacity style={s.historyHeaderBtn} onPress={openAllSessionsView} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+          <IconHistory size={20} color={colors.purpleLight} />
+        </TouchableOpacity>
       </View>
 
       {/* Nombre rutina activa + estado */}
@@ -2317,6 +2320,7 @@ function createStyles(colors) {
     modeTabText: { fontSize:13, color:colors.gray, fontWeight:'600' },
     modeTabTextActive: { color:'#fff' },
     recommendBtn: { width:40, height:40, borderRadius:20, backgroundColor:colors.purpleDim, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purple },
+    historyHeaderBtn: { width:40, height:40, borderRadius:20, backgroundColor:colors.bgCard, alignItems:'center', justifyContent:'center', borderWidth:1, borderColor:colors.purpleDim },
     recommendBtnIcon: { fontSize:20 },
     inlineIconRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
     modalBtnRow: { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:7 },
