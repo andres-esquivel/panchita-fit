@@ -13,7 +13,7 @@ import {
   getCustomRoutines, getLocalCustomRoutines,
   saveCustomRoutine, deleteCustomRoutine,
   getRecentMuscleActivity, getWeightUnit,
-  shareRoutine, importSharedRoutine,
+  shareRoutine, importSharedRoutine, getActiveSessionDraft,
 } from '../storage';
 import {
   IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
@@ -312,6 +312,7 @@ export default function WorkoutScreen({ navigation, route }) {
   const [showHistoryView, setShowHistoryView]         = useState(false);
   const [historyLogs, setHistoryLogs]                 = useState([]);
   const [historyDetailLog, setHistoryDetailLog]       = useState(null);
+  const [activeDraft, setActiveDraft]                 = useState(null);
 
   // Registrar sesión pasada
   const now = new Date();
@@ -463,12 +464,14 @@ export default function WorkoutScreen({ navigation, route }) {
     // ── FASE 1: local inmediato < 200ms ─────────────────────
     setInitialLoading(true);
     setUsingLocalData(false);
-    const [localBase, localCustom] = await Promise.all([
+    const [localBase, localCustom, draft] = await Promise.all([
       getLocalWorkouts(),
       getLocalCustomRoutines(),
+      getActiveSessionDraft().catch(() => null),
     ]);
     setBaseWorkouts(localBase);
     setCustomRoutines(localCustom);
+    setActiveDraft(draft);
     setInitialLoading(false); // skeleton desaparece
     if (!selectedWorkoutRef.current && localCustom.length>0) {
       await selectWorkout(localCustom[0]);
@@ -485,6 +488,7 @@ export default function WorkoutScreen({ navigation, route }) {
       const [remoteBase, remoteCustom] = await Promise.race([remotePromise, timeoutPromise]);
       setBaseWorkouts(remoteBase);
       setCustomRoutines(remoteCustom);
+      getActiveSessionDraft().then(setActiveDraft).catch(() => {});
       setUsingLocalData(false);
       if (!selectedWorkoutRef.current && remoteCustom.length>0) {
         await selectWorkout(remoteCustom[0]);
@@ -1003,6 +1007,28 @@ ${shareCode}` });
     } catch { /* sin historial */ }
   }
 
+  function routineFromDraft(draft = activeDraft) {
+    if (!draft?.log) return null;
+    const all = [...customRoutines, ...baseWorkouts];
+    const existing = all.find(r => r.id === draft.workoutId);
+    if (existing) return existing;
+    return {
+      id: draft.workoutId,
+      name: draft.log.workoutName || draft.workoutName || 'Sesión reciente',
+      day: draft.log.workoutName || draft.workoutName || 'Sesión reciente',
+      exercises: (draft.log.exercises || []).map(ex => ex.name).filter(Boolean),
+      isCustom: true,
+    };
+  }
+
+  function continueActiveDraft() {
+    const routine = routineFromDraft();
+    if (!routine || !activeDraft?.log) return;
+    setActiveWorkoutDate(activeDraft.log.date || activeDraft.date || TODAY);
+    setActiveWorkoutBackfill(!!activeDraft.log.backfilled);
+    setActiveWorkoutRoutine(routine);
+  }
+
   function startNewSession() {
     setShowRoutineModal(false);
     setActiveWorkoutDate(TODAY);
@@ -1077,6 +1103,7 @@ ${shareCode}` });
     setSelectedWorkout(null);
     setLog(null);
     setCompleted(false);
+    setActiveDraft(null);
     loadAll();
     if (!wasBackfill) navigation.navigate('Inicio');
   }
@@ -1575,6 +1602,20 @@ ${shareCode}` });
         </View>
       )}
 
+      {activeDraft?.log && (
+        <TouchableOpacity style={s.resumeCard} onPress={continueActiveDraft} activeOpacity={0.8}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.resumeTitle}>Sesión reciente guardada</Text>
+            <Text style={s.resumeMeta} numberOfLines={1}>
+              {(activeDraft.log.workoutName || activeDraft.workoutName || 'Rutina')} · {formatDateDisplay(activeDraft.log.date || activeDraft.date)}
+            </Text>
+          </View>
+          <View style={s.resumeBtn}>
+            <Text style={s.resumeBtnTxt}>Continuar</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* T1 — Lista vertical de rutinas */}
       {initialLoading ? (
         <View style={s.routineListWrap}>
@@ -1920,6 +1961,17 @@ function createStyles(colors) {
     statusPill: { flexDirection:'row', alignItems:'center', gap:3, marginLeft:8 },
     deletingBanner: { flexDirection:'row', alignItems:'center', gap:8, paddingHorizontal:14, paddingVertical:9, backgroundColor:colors.bgInput, borderBottomWidth:1, borderBottomColor:colors.purpleDim },
     deletingText: { color:colors.grayLight, fontSize:12, fontWeight:'700', flex:1 },
+    resumeCard: {
+      marginHorizontal:12, marginTop:10, marginBottom:8, padding:12,
+      backgroundColor:colors.bgInput, borderRadius:RADIUS.lg,
+      borderWidth:1.5, borderColor:colors.purple,
+      flexDirection:'row', alignItems:'center', gap:12,
+      shadowColor:'#7c3aed', shadowOpacity:0.18, shadowRadius:8, elevation:4,
+    },
+    resumeTitle: { color:colors.white, fontSize:14, fontWeight:'900' },
+    resumeMeta: { color:colors.grayLight, fontSize:12, marginTop:3, fontWeight:'600' },
+    resumeBtn: { backgroundColor:colors.purple, borderRadius:RADIUS.full, paddingVertical:9, paddingHorizontal:14 },
+    resumeBtnTxt: { color:colors.accentText||'#fff', fontSize:12, fontWeight:'900' },
 
     // Selector rutinas
     dayScroll: { paddingHorizontal:14, paddingVertical:8, maxHeight:52 },

@@ -2,12 +2,12 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   TouchableOpacity, TextInput, Modal, Animated, ActivityIndicator,
-  KeyboardAvoidingView, Platform, Vibration,
+  KeyboardAvoidingView, Platform, Vibration, AppState,
 } from 'react-native';
 import { Share } from 'react-native';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { getLogs, saveLog, getWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, shareRoutine } from '../storage';
+import { getLogs, saveLog, saveLogDraft, clearActiveSessionDraft, getWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, shareRoutine } from '../storage';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
 import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
@@ -158,6 +158,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   const restIntervalRef  = useRef(null);
   const lastSavedLogRef  = useRef('');
   const restActiveRef    = useRef(false); // true while a timer is running
+  const lastDraftLogRef  = useRef('');
 
   const formatRestTime = useCallback((seconds) => {
     const safe = Math.max(0, seconds || 0);
@@ -227,6 +228,38 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[restLeft]);
 
+  // Draft local inmediato: si Safari/iPhone cierra la PWA antes del debounce,
+  // las reps ya quedan en AsyncStorage. Firestore va después; los datos primero.
+  useEffect(()=>{
+    if (!log || completed || !logHasProgress(log)) return;
+    const signature = logSignature(log);
+    if (signature === lastDraftLogRef.current) return;
+    lastDraftLogRef.current = signature;
+    saveLogDraft(log).catch(e => console.warn('draft save failed:', e));
+  }, [log, completed]);
+
+  // Al mandar la app al fondo, hacemos un flush local inmediato.
+  useEffect(()=>{
+    const flushDraft = () => {
+      if (log && !completed && logHasProgress(log)) {
+        saveLogDraft(log).catch(()=>{});
+      }
+    };
+
+    const sub = AppState?.addEventListener?.('change', state => {
+      if (state === 'inactive' || state === 'background') flushDraft();
+    });
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', flushDraft);
+      return () => {
+        window.removeEventListener('beforeunload', flushDraft);
+        sub?.remove?.();
+      };
+    }
+    return () => sub?.remove?.();
+  }, [log, completed]);
+
   // Autosave debounced 900ms
   useEffect(()=>{
     if (!log||!routine||completed) {
@@ -284,6 +317,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
     setCompleted(false);
     setLastLog(null);
     lastSavedLogRef.current = '';
+    lastDraftLogRef.current = '';
     setAutoSaveState('idle');
 
     try {
@@ -307,6 +341,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         setLog(validatedLog);
         setCompleted(existingLog.completed);
         lastSavedLogRef.current = logSignature(validatedLog);
+        lastDraftLogRef.current = logSignature(validatedLog);
         setAutoSaveState('saved');
       } else if (workout.isRecurring && last) {
         setLog({
@@ -450,6 +485,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
       setAutoSaveState('saved');
       setLog(finishedLog);
       setCompleted(true);
+      clearActiveSessionDraft(finishedLog.id || `${finishedLog.date}_${finishedLog.workoutId || 'session'}`).catch(() => {});
       const phrase = isBackfill
         ? 'Sesión pasada registrada. El historial acepta confesiones tardías.'
         : COMPLETION_PHRASES[Math.floor(Math.random()*COMPLETION_PHRASES.length)];

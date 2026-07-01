@@ -50,12 +50,36 @@ async function setLocalList(name, items) {
   }
 }
 
+function itemTime(item) {
+  const raw = item?.updatedAt || item?.savedAt || item?.createdAt || item?.date || '';
+  const t = raw ? Date.parse(raw) : 0;
+  return Number.isFinite(t) ? t : 0;
+}
+
 function mergeById(primary = [], secondary = []) {
   const map = new Map();
   [...secondary, ...primary].forEach(item => {
-    if (item?.id) map.set(item.id, item);
+    if (!item?.id) return;
+    const existing = map.get(item.id);
+    if (!existing) {
+      map.set(item.id, item);
+      return;
+    }
+
+    const incomingTime = itemTime(item);
+    const existingTime = itemTime(existing);
+    if (incomingTime >= existingTime) {
+      map.set(item.id, { ...existing, ...item });
+    }
   });
   return [...map.values()];
+}
+
+function normalizeLogForStorage(log) {
+  const date = log?.date || new Date().toISOString().split('T')[0];
+  const workoutId = log?.workoutId || 'session';
+  const id = log?.id || `${date}_${workoutId}`;
+  return { ...log, id, date, workoutId, updatedAt: new Date().toISOString() };
 }
 
 // ─── Onboarding ───────────────────────────────────────────
@@ -244,7 +268,7 @@ export async function getCustomRoutines() {
 
 export async function saveCustomRoutine(routine) {
   const id = routine.id || String(Date.now());
-  const normalized = { ...routine, id };
+  const normalized = { ...routine, id, updatedAt: new Date().toISOString() };
 
   // Primero guardamos local para que móvil nunca quede cargando si Firebase tarda.
   const local = await getLocalList('customRoutines');
@@ -273,6 +297,8 @@ export async function getLogs() {
   const local = await getLocalList('logs');
   try {
     const remote = await withTimeout(getAll('logs'), 5000, 'logs');
+    // Importante: elegir por updatedAt. Si el móvil guardó local y Firestore
+    // todavía trae una versión vieja, NO dejamos que la versión vieja borre sets.
     const merged = mergeById(remote, local);
     await setLocalList('logs', merged);
     return merged;
@@ -281,14 +307,56 @@ export async function getLogs() {
   }
 }
 
-export async function saveLog(log) {
-  const id = `${log.date}_${log.workoutId || 'session'}`;
-  const normalized = { ...log, id, updatedAt: new Date().toISOString() };
-
-  // Local primero: las reps quedan guardadas aunque Firebase tarde o el móvil pierda conexión.
+export async function saveLogDraft(log) {
+  if (!log) return null;
+  const normalized = normalizeLogForStorage(log);
   const local = await getLocalList('logs');
   const updated = mergeById([normalized], local);
   await setLocalList('logs', updated);
+
+  if (!normalized.completed) {
+    await AsyncStorage.setItem(localKey('activeSession'), JSON.stringify({
+      id: normalized.id,
+      workoutId: normalized.workoutId,
+      workoutName: normalized.workoutName || normalized.name || normalized.day || 'Sesión',
+      date: normalized.date,
+      backfilled: !!normalized.backfilled,
+      updatedAt: normalized.updatedAt,
+    }));
+  }
+  return normalized;
+}
+
+export async function getActiveSessionDraft() {
+  try {
+    const raw = await AsyncStorage.getItem(localKey('activeSession'));
+    if (!raw) return null;
+    const marker = JSON.parse(raw);
+    const logs = await getLocalList('logs');
+    const log = logs.find(l => l.id === marker.id) || logs.find(l => l.date === marker.date && l.workoutId === marker.workoutId);
+    if (!log || log.completed) {
+      await AsyncStorage.removeItem(localKey('activeSession'));
+      return null;
+    }
+    return { ...marker, log };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearActiveSessionDraft(id) {
+  try {
+    const raw = await AsyncStorage.getItem(localKey('activeSession'));
+    if (!raw) return;
+    const marker = JSON.parse(raw);
+    if (!id || marker.id === id) await AsyncStorage.removeItem(localKey('activeSession'));
+  } catch {}
+}
+
+export async function saveLog(log) {
+  const normalized = await saveLogDraft(log);
+  if (!normalized) return null;
+  const { id } = normalized;
 
   // Sync remoto en segundo plano. Panchita no espera al WiFi para contar reps.
   withTimeout(
@@ -297,6 +365,7 @@ export async function saveLog(log) {
     'saveLog'
   ).catch(error => console.warn('Remote log sync failed:', error));
 
+  if (normalized.completed) clearActiveSessionDraft(id).catch(() => {});
   return normalized;
 }
 
