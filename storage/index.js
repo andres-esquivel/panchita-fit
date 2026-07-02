@@ -193,11 +193,16 @@ export async function saveUser(user) {
   const current = await getUser().catch(() => null);
   const merged = { ...(current || {}), ...(user || {}), updatedAt: new Date().toISOString() };
   await AsyncStorage.setItem(localKey('profile'), JSON.stringify(merged));
-  withTimeout(
-    setDoc(userDoc('profile/data'), merged, { merge: true }),
-    6500,
-    'saveUser'
-  ).catch(error => console.warn('Remote profile sync failed:', error));
+  try {
+    withTimeout(
+      setDoc(userDoc('profile/data'), merged, { merge: true }),
+      6500,
+      'saveUser'
+    ).then(() => console.log('Firestore write success: profile/data'))
+     .catch(error => console.warn('Remote profile sync failed:', error));
+  } catch (error) {
+    console.warn('Remote profile sync failed (sync):', error);
+  }
   return merged;
 }
 
@@ -228,13 +233,18 @@ export async function saveWorkouts(workouts = []) {
   // Local primero: onboarding/rutinas no desaparecen si Firestore tarda.
   await setLocalList('workouts', normalized);
 
-  const batch = writeBatch(db);
-  for (const w of normalized) {
-    const ref = doc(userCol('workouts'), w.id);
-    batch.set(ref, w, { merge: true });
+  try {
+    const batch = writeBatch(db);
+    for (const w of normalized) {
+      const ref = doc(userCol('workouts'), w.id);
+      batch.set(ref, w, { merge: true });
+    }
+    withTimeout(batch.commit(), 7000, 'saveWorkouts')
+      .then(() => console.log('Firestore write success: workouts'))
+      .catch(error => console.warn('Remote workouts sync failed:', error));
+  } catch (error) {
+    console.warn('Remote workouts sync failed (sync):', error);
   }
-  withTimeout(batch.commit(), 7000, 'saveWorkouts')
-    .catch(error => console.warn('Remote workouts sync failed:', error));
 
   return normalized;
 }
@@ -260,10 +270,15 @@ export async function getCustomRoutines() {
         if (localVersion?.exercises?.length > 0) {
           const fixed = { ...routine, exercises: localVersion.exercises };
           // Re-sync al Firestore en background para corregir el dato remoto
-          withTimeout(
-            setDoc(doc(userCol('customRoutines'), routine.id), fixed, { merge: true }),
-            6500, 'fixRoutineExercises'
-          ).catch(e => console.warn('Re-sync routine exercises failed:', e));
+          try {
+            withTimeout(
+              setDoc(doc(userCol('customRoutines'), routine.id), fixed, { merge: true }),
+              6500, 'fixRoutineExercises'
+            ).then(() => console.log('Firestore write success: customRoutines (fix exercises)'))
+             .catch(e => console.warn('Re-sync routine exercises failed:', e));
+          } catch (e) {
+            console.warn('Re-sync routine exercises failed (sync):', e);
+          }
           return fixed;
         }
       }
@@ -286,11 +301,17 @@ export async function saveCustomRoutine(routine) {
   await setLocalList('customRoutines', updated);
 
   // Luego sincronizamos en segundo plano. Si Firebase se duerme, la app sigue usable.
-  withTimeout(
-    setDoc(doc(userCol('customRoutines'), id), normalized, { merge: true }),
-    6500,
-    'saveCustomRoutine'
-  ).catch(error => console.warn('Remote custom routine sync failed:', error));
+  // Wrapped in try/catch: uid() se evalúa síncronamente y puede lanzar si auth no está listo.
+  try {
+    withTimeout(
+      setDoc(doc(userCol('customRoutines'), id), normalized, { merge: true }),
+      6500,
+      'saveCustomRoutine'
+    ).then(() => console.log('Firestore write success: customRoutines'))
+     .catch(error => console.warn('Remote custom routine sync failed:', error));
+  } catch (error) {
+    console.warn('Remote custom routine sync failed (sync):', error);
+  }
 
   return normalized;
 }
@@ -298,8 +319,13 @@ export async function saveCustomRoutine(routine) {
 export async function deleteCustomRoutine(id) {
   const local = await getLocalList('customRoutines');
   await setLocalList('customRoutines', local.filter(item => item.id !== id));
-  withTimeout(deleteDoc(doc(userCol('customRoutines'), id)), 6500, 'deleteCustomRoutine')
-    .catch(error => console.warn('Remote custom routine delete failed:', error));
+  try {
+    withTimeout(deleteDoc(doc(userCol('customRoutines'), id)), 6500, 'deleteCustomRoutine')
+      .then(() => console.log('Firestore write success: customRoutines (delete)'))
+      .catch(error => console.warn('Remote custom routine delete failed:', error));
+  } catch (error) {
+    console.warn('Remote custom routine delete failed (sync):', error);
+  }
 }
 
 // ─── Logs de sesiones ──────────────────────────────────────
@@ -389,11 +415,17 @@ export async function saveLog(log) {
   const { id } = normalized;
 
   // Sync remoto en segundo plano. Panchita no espera al WiFi para contar reps.
-  withTimeout(
-    setDoc(doc(userCol('logs'), id), normalized, { merge: true }),
-    6500,
-    'saveLog'
-  ).catch(error => console.warn('Remote log sync failed:', error));
+  // Wrapped in try/catch: uid() se evalúa síncronamente y puede lanzar si auth no está listo.
+  try {
+    withTimeout(
+      setDoc(doc(userCol('logs'), id), normalized, { merge: true }),
+      6500,
+      'saveLog'
+    ).then(() => console.log('Firestore write success: logs'))
+     .catch(error => console.warn('Remote log sync failed:', error));
+  } catch (error) {
+    console.warn('Remote log sync failed (sync):', error);
+  }
 
   if (normalized.completed) clearActiveSessionDraft(id).catch(() => {});
   return normalized;
@@ -417,15 +449,25 @@ export async function moveLogDate(log, newDate) {
   });
   await setLocalList('logs', sortLogs([updated, ...withoutOld]));
 
-  withTimeout(
-    setDoc(doc(userCol('logs'), updated.id), updated, { merge: true }),
-    6500,
-    'moveLogDateSave'
-  ).catch(error => console.warn('Remote log date update failed:', error));
+  try {
+    withTimeout(
+      setDoc(doc(userCol('logs'), updated.id), updated, { merge: true }),
+      6500,
+      'moveLogDateSave'
+    ).then(() => console.log('Firestore write success: logs (move date)'))
+     .catch(error => console.warn('Remote log date update failed:', error));
+  } catch (error) {
+    console.warn('Remote log date update failed (sync):', error);
+  }
 
   if (oldId !== updated.id) {
-    withTimeout(deleteDoc(doc(userCol('logs'), oldId)), 6500, 'moveLogDateDelete')
-      .catch(error => console.warn('Remote old log delete failed:', error));
+    try {
+      withTimeout(deleteDoc(doc(userCol('logs'), oldId)), 6500, 'moveLogDateDelete')
+        .then(() => console.log('Firestore write success: logs (delete old)'))
+        .catch(error => console.warn('Remote old log delete failed:', error));
+    } catch (error) {
+      console.warn('Remote old log delete failed (sync):', error);
+    }
   }
 
   return updated;
@@ -457,7 +499,13 @@ export async function getBodyWeights() {
 }
 
 export async function saveBodyWeight(entry) {
-  await setDoc(doc(userCol('weightLog'), entry.date), entry, { merge: true });
+  try {
+    await setDoc(doc(userCol('weightLog'), entry.date), entry, { merge: true });
+    console.log('Firestore write success: weightLog');
+  } catch (error) {
+    console.warn('saveBodyWeight Firestore failed:', error);
+    throw error;
+  }
 }
 
 export async function deleteBodyWeight(date) {
@@ -611,7 +659,13 @@ export async function saveWeeklyReview(review) {
   const id = review.weekKey.replace(/[^a-zA-Z0-9-]/g, '_');
   // Guardar local primero (instantáneo, evita re-aparición si Firestore es lento)
   await markWeeklyReviewSeen(review.weekKey);
-  await setDoc(doc(userCol('weeklyReviews'), id), review, { merge: true });
+  try {
+    await setDoc(doc(userCol('weeklyReviews'), id), review, { merge: true });
+    console.log('Firestore write success: weeklyReviews');
+  } catch (error) {
+    console.warn('saveWeeklyReview Firestore failed:', error);
+    throw error;
+  }
 }
 
 // Marca la semana como vista en AsyncStorage (inmediato, funciona offline)
@@ -676,10 +730,15 @@ export async function saveWeightUnit(unit) {
   try {
     await AsyncStorage.setItem(WEIGHT_UNIT_KEY, unit);
     // Sincronizar en Firestore también
-    withTimeout(
-      setDoc(userDoc('settings/preferences'), { weightUnit: unit }, { merge: true }),
-      5000, 'saveWeightUnit'
-    ).catch(e => console.warn('saveWeightUnit remote failed:', e));
+    try {
+      withTimeout(
+        setDoc(userDoc('settings/preferences'), { weightUnit: unit }, { merge: true }),
+        5000, 'saveWeightUnit'
+      ).then(() => console.log('Firestore write success: settings/preferences (weightUnit)'))
+       .catch(e => console.warn('saveWeightUnit remote failed:', e));
+    } catch (e) {
+      console.warn('saveWeightUnit remote failed (sync):', e);
+    }
   } catch (e) {
     console.warn('saveWeightUnit local failed:', e);
   }
@@ -700,11 +759,16 @@ export async function saveRestTimerSeconds(seconds) {
   const normalized = Math.max(0, parseInt(seconds, 10) || 0);
   try {
     await AsyncStorage.setItem(REST_TIMER_KEY, String(normalized));
-    withTimeout(
-      setDoc(userDoc('settings/preferences'), { restTimerSeconds: normalized }, { merge: true }),
-      5000,
-      'saveRestTimerSeconds'
-    ).catch(e => console.warn('saveRestTimerSeconds remote failed:', e));
+    try {
+      withTimeout(
+        setDoc(userDoc('settings/preferences'), { restTimerSeconds: normalized }, { merge: true }),
+        5000,
+        'saveRestTimerSeconds'
+      ).then(() => console.log('Firestore write success: settings/preferences (restTimer)'))
+       .catch(e => console.warn('saveRestTimerSeconds remote failed:', e));
+    } catch (e) {
+      console.warn('saveRestTimerSeconds remote failed (sync):', e);
+    }
   } catch (e) {
     console.warn('saveRestTimerSeconds local failed:', e);
   }
@@ -758,11 +822,16 @@ export async function saveNotificationPrefs(prefs = {}) {
   await AsyncStorage.setItem(storageKey, JSON.stringify(merged));
 
   if (auth.currentUser) {
-    withTimeout(
-      setDoc(userDoc('settings/preferences'), { notificationPrefs: merged }, { merge: true }),
-      5000,
-      'saveNotificationPrefs'
-    ).catch(e => console.warn('saveNotificationPrefs remote failed:', e));
+    try {
+      withTimeout(
+        setDoc(userDoc('settings/preferences'), { notificationPrefs: merged }, { merge: true }),
+        5000,
+        'saveNotificationPrefs'
+      ).then(() => console.log('Firestore write success: settings/preferences (notificationPrefs)'))
+       .catch(e => console.warn('saveNotificationPrefs remote failed:', e));
+    } catch (e) {
+      console.warn('saveNotificationPrefs remote failed (sync):', e);
+    }
   }
 
   return merged;
