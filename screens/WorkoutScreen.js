@@ -19,6 +19,7 @@ import {
   IconArrow, IconArrowDown, IconArrowUp, IconBack, IconBolt, IconCalendar,
   IconCheck, IconClose, IconCopy, IconDocument, IconDownload, IconEditar, IconEliminar, IconHistory,
   IconTimer, IconMenuDots, IconRepeat, IconShare, IconStar, IconWarning,
+  IconDumbbell, IconPlus,
 } from '../components/icons';
 import { Share } from 'react-native';
 import Panchita from '../components/Panchita';
@@ -572,6 +573,7 @@ export default function WorkoutScreen({ navigation, route }) {
   const [showAllSessions, setShowAllSessions]         = useState(false);
   const [allSessionLogs, setAllSessionLogs]           = useState([]);
   const [activeDraft, setActiveDraft]                 = useState(null);
+  const [recentSessions, setRecentSessions]           = useState([]);
 
   // Registrar sesión pasada
   const now = new Date();
@@ -676,6 +678,20 @@ export default function WorkoutScreen({ navigation, route }) {
   }
 
   useFocusEffect(useCallback(()=>{ loadAll(); },[mode]));
+
+  // Cargar sesiones recientes para el dashboard
+  useFocusEffect(useCallback(()=>{
+    let alive = true;
+    getLogs().then(logs=>{
+      if (!alive) return;
+      const recent = [...logs]
+        .filter(l=>l.completed)
+        .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')))
+        .slice(0,3);
+      setRecentSessions(recent);
+    }).catch(()=>{});
+    return ()=>{ alive=false; };
+  },[]));
 
   // Historial en vivo: pinta desde caché local inmediatamente y luego se actualiza
   // cuando Firestore responde. Evita el bug de historial blanco hasta refrescar.
@@ -1933,308 +1949,189 @@ ${shareCode}` });
         </View>
       </Modal>
 
-      {/* Header — T2: "Mis rutinas" fijo + "+ Nueva rutina" */}
-      <View style={s.modeHeader}>
-        <View style={s.modeTabs}>
-          <View style={[s.modeTab, s.modeTabActive]}>
-            <Text style={[s.modeTabText, s.modeTabTextActive]}>Mis rutinas</Text>
+      {/* ── Dashboard principal ── */}
+      <ScrollView
+        contentContainerStyle={s.dashScroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
+        <View style={s.dashHeader}>
+          <Text style={s.dashTitle}>Entrenar</Text>
+          <View style={s.dashHeaderActions}>
+            <TouchableOpacity style={s.dashIconBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+              <IconStar size={19} color={colors.lime} />
+            </TouchableOpacity>
+            <TouchableOpacity style={s.dashIconBtn} onPress={openAllSessionsView} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+              <IconHistory size={19} color={colors.purpleLight} />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={s.modeTab} onPress={openCreateModal} activeOpacity={0.7}>
-            <Text style={[s.modeTabText, s.modeTabNewText]}>+ Nueva rutina</Text>
-          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={s.recommendBtn} onPress={openRecommendation} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-          <IconStar size={20} color={colors.lime} />
+
+        {/* CTA principal */}
+        <TouchableOpacity
+          style={s.dashCTA}
+          activeOpacity={0.85}
+          onPress={()=> currentList.length > 0 ? openRoutineModal(currentList[0]) : openCreateModal()}
+        >
+          <IconBolt size={20} color={colors.accentText || '#000'} />
+          <Text style={s.dashCTAText}>Iniciar sesión</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.historyHeaderBtn} onPress={openAllSessionsView} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-          <IconHistory size={20} color={colors.purpleLight} />
-        </TouchableOpacity>
-      </View>
 
-      {/* Nombre rutina activa + estado */}
-      <View style={s.activeBar}>
-        {selectedWorkout&&log ? (
-          <Text style={s.activeName} numberOfLines={1} ellipsizeMode="tail">
-            {selectedWorkout.name||selectedWorkout.day}
-          </Text>
-        ) : (
-          <Text style={s.activeName} numberOfLines={1}>{syncing ? 'Cargando...' : 'Seleccioná una rutina'}</Text>
-        )}
-        {syncing&&<Text style={s.syncHint}>↻ Sincronizando</Text>}
-        {!syncing&&usingLocalData&&<Text style={s.localDataHint}>Local</Text>}
-        {!syncing&&!usingLocalData&&autoSaveState==='saving'&&<Text style={s.autoSaveHint}>Guardando...</Text>}
-        {!syncing&&!usingLocalData&&autoSaveState==='saved'&&<View style={s.statusPill}><IconCheck size={12} color={colors.lime} /><Text style={s.autoSaveHint}>Guardado</Text></View>}
-        {!syncing&&autoSaveState==='error'&&<View style={s.statusPill}><IconWarning size={12} color="#ef4444" /><Text style={[s.autoSaveHint,{color:'#ef4444'}]}>Error</Text></View>}
-      </View>
-
-      {deletingRoutineId && (
-        <View style={s.deletingBanner}>
-          <ActivityIndicator size="small" color={colors.purpleLight} />
-          <Text style={s.deletingText}>Eliminando {deletingRoutineName}...</Text>
-        </View>
-      )}
-
-      {activeDraft?.log && (
-        <TouchableOpacity style={s.resumeCard} onPress={continueActiveDraft} activeOpacity={0.8}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.resumeTitle}>Sesión reciente guardada</Text>
-            <Text style={s.resumeMeta} numberOfLines={1}>
-              {(activeDraft.log.workoutName || activeDraft.workoutName || 'Rutina')} · {formatDateDisplay(activeDraft.log.date || activeDraft.date)}
-            </Text>
-          </View>
-          <View style={s.resumeBtn}>
-            <Text style={s.resumeBtnTxt}>Continuar</Text>
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {/* T1 — Lista vertical de rutinas */}
-      {initialLoading ? (
-        <View style={s.routineListWrap}>
-          {[0,1,2].map(i=>(
-            <View key={i} style={s.routineRowSkeleton}>
-              <View style={{flex:1,gap:6}}>
-                <SkeletonRect colors={colors} width="58%" height={14}/>
-                <SkeletonRect colors={colors} width="38%" height={11}/>
-              </View>
+        {/* Continuar borrador guardado */}
+        {activeDraft?.log && (
+          <TouchableOpacity style={s.resumeCard} onPress={continueActiveDraft} activeOpacity={0.8}>
+            <View style={{flex:1}}>
+              <Text style={s.resumeTitle}>Sesión reciente guardada</Text>
+              <Text style={s.resumeMeta} numberOfLines={1}>
+                {(activeDraft.log.workoutName || activeDraft.workoutName || 'Rutina')} · {formatDateDisplay(activeDraft.log.date || activeDraft.date)}
+              </Text>
             </View>
-          ))}
-        </View>
-      ) : (
-        <View style={s.routineListWrap}>
-          <ScrollView style={{maxHeight:200}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-            {currentList.map(w=>{
-              const isSelected = selectedWorkout?.id===w.id;
-              const exCount = normalizeExercises(w.exercises).length;
-              const lastUsed = lastUsedMap[w.id];
-              return (
-                <TouchableOpacity key={w.id} style={[s.routineRow, isSelected&&s.routineRowActive]} onPress={()=>openRoutineModal(w)} activeOpacity={0.75}>
-                  <View style={{flex:1,gap:2}}>
-                    <Text style={[s.routineRowName, isSelected&&s.routineRowNameActive]} numberOfLines={1}>
-                      {w.name||w.day}
-                    </Text>
-                    <Text style={s.routineRowMeta}>
-                      {exCount} ejercicio{exCount!==1?'s':''}{lastUsed?` · ${formatLogDate(lastUsed)}`:''}
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={()=>openChipMenu(w)} style={s.routineRowMenu} activeOpacity={0.6}>
-                    <IconMenuDots size={20} color={isSelected ? 'rgba(255,255,255,0.75)' : colors.gray} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              );
-            })}
-            {currentList.length===0&&(
-              <Text style={{color:colors.gray,padding:16,fontSize:13}}>Sin rutinas aún — tocá "+ Nueva rutina"</Text>
-            )}
-          </ScrollView>
-          <TouchableOpacity style={s.importRowBtn} onPress={openImportModal} activeOpacity={0.7}>
-            <View style={s.inlineIconRow}><IconDownload size={16} color={colors.purpleLight} /><Text style={s.importRowBtnTxt}>Importar código de rutina</Text></View>
+            <View style={s.resumeBtn}>
+              <Text style={s.resumeBtnTxt}>Continuar</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Indicadores de estado */}
+        {syncing && <Text style={s.dashSyncHint}>Sincronizando...</Text>}
+        {!syncing && usingLocalData && <Text style={s.dashSyncHint}>Usando datos locales</Text>}
+
+        {/* Selector segmentado */}
+        <View style={s.segmented}>
+          <View style={[s.segTab, s.segTabActive]}>
+            <Text style={[s.segTabText, s.segTabTextActive]}>Mis rutinas</Text>
+          </View>
+          <TouchableOpacity style={s.segTab} onPress={openAllSessionsView} activeOpacity={0.75}>
+            <Text style={s.segTabText}>Historial</Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      {/* Lista de ejercicios */}
-      <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={90}>
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-        {/* T4: Skeleton mientras carga */}
-        {initialLoading&&(
+        {/* ── Sección GUARDADAS ── */}
+        <Text style={s.sectionLabel}>GUARDADAS</Text>
+
+        {deletingRoutineId && (
+          <View style={s.deletingBanner}>
+            <ActivityIndicator size="small" color={colors.purpleLight} />
+            <Text style={s.deletingText}>Eliminando {deletingRoutineName}...</Text>
+          </View>
+        )}
+
+        {initialLoading ? (
           <View>
             {[0,1,2].map(i=>(
-              <View key={i} style={[s.exCard,{marginBottom:14}]}>
-                <SkeletonRect colors={colors} width="55%" height={18} style={{marginBottom:14}}/>
-                <SkeletonRect colors={colors} width="100%" height={52} style={{marginBottom:10}}/>
-                <SkeletonRect colors={colors} width="100%" height={52}/>
+              <View key={i} style={s.routineCardSkeleton}>
+                <SkeletonRect colors={colors} width={38} height={38} style={{borderRadius:10,marginRight:12}}/>
+                <View style={{flex:1,gap:6}}>
+                  <SkeletonRect colors={colors} width="55%" height={14}/>
+                  <SkeletonRect colors={colors} width="35%" height={11}/>
+                </View>
               </View>
             ))}
           </View>
-        )}
-
-        {!initialLoading&&!log&&(
-          <View style={s.emptyState}>
-            <Panchita state="idle" size={90}/>
-            <Text style={s.emptyTitle}>Creá tu primera rutina</Text>
-            <Text style={s.emptyText}>Tocá "+ Nueva rutina" para agregar ejercicios personalizados.</Text>
-            <TouchableOpacity style={s.emptyBtn} onPress={openCreateModal}>
-              <Text style={s.emptyBtnText}>+ Crear rutina</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {log&&completed&&(
-          <View style={s.completedBanner}>
-            <View style={s.inlineIconRow}><IconCheck size={15} color={colors.lime} /><Text style={s.completedText}>Sesión completada hoy</Text></View>
-          </View>
-        )}
-
-        {/* Estado vacío — todos los ejercicios eliminados */}
-        {log&&(log.exercises||[]).length===0&&(
-          <View style={s.emptyExState}>
-            <Text style={s.emptyExTitle}>Sin ejercicios</Text>
-            <Text style={s.emptyExText}>Eliminaste todos los ejercicios de esta sesión.</Text>
-            <TouchableOpacity style={s.emptyExBtn} onPress={()=>selectWorkout(selectedWorkout)}>
-              <Text style={s.emptyExBtnText}>Recargar rutina</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Tarjetas de ejercicios */}
-        {(log?.exercises||[]).map((ex, exIdx)=>(
-          <View key={exIdx} style={s.exCard}>
-            {/* Header: nombre + toggle unidad + ↑↓ + ✕ */}
-            <View style={s.exHeader}>
-              <Text style={[s.exName,{flex:1,marginBottom:0}]}>{ex.name || `Ejercicio ${exIdx+1}`}</Text>
-              <View style={s.exUnitToggle}>
-                {['kg','lb'].map(u=>(
-                  <TouchableOpacity
-                    key={u}
-                    style={[s.exUnitBtn,(ex.unit||weightUnit)===u&&s.exUnitBtnActive]}
-                    onPress={()=>setExUnit(exIdx,u)}
-                  >
-                    <Text style={[s.exUnitTxt,(ex.unit||weightUnit)===u&&s.exUnitTxtActive]}>{u}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              {/* T5 — flechas para reordenar */}
-              <TouchableOpacity
-                style={s.exOrderBtn}
-                onPress={()=>moveExercise(exIdx,-1)}
-                activeOpacity={0.6}
-                disabled={exIdx===0}
-              >
-                <IconArrowUp size={15} color={exIdx===0 ? colors.gray : colors.purpleLight} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.exOrderBtn}
-                onPress={()=>moveExercise(exIdx,1)}
-                activeOpacity={0.6}
-                disabled={exIdx===(log?.exercises?.length-1)}
-              >
-                <IconArrowDown size={15} color={exIdx===(log?.exercises?.length-1) ? colors.gray : colors.purpleLight} />
-              </TouchableOpacity>
-              {/* Botón ✕ — 44×44, usa ConfirmModal */}
-              <TouchableOpacity
-                style={s.exRemoveBtn}
-                activeOpacity={0.7}
-                onPress={()=>showConfirm({
-                  title: '¿Eliminar ejercicio?',
-                  message: `Se eliminará "${ex.name || `Ejercicio ${exIdx+1}`}" de esta sesión.`,
-                  confirmText: 'Eliminar',
-                  confirmDestructive: true,
-                  onConfirm: () => { hideConfirm(); removeExercise(exIdx); },
-                })}
-              >
-                <IconClose size={16} color={colors.danger} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Sets — tarjeta vertical por set */}
-            {(ex.sets||[]).map((st, setIdx)=>{
-              const prevReps   = getLastValue(ex.name, setIdx, 'reps');
-              const prevWeight = getLastValue(ex.name, setIdx, 'weight');
-              const hasPrev    = prevReps || prevWeight;
-              const isDone     = !!st.done;
-              const isOnly     = ex.sets.length === 1;
-
+        ) : (
+          <View>
+            {currentList.map(w=>{
+              const exCount = normalizeExercises(w.exercises).length;
+              const isInProgress = activeDraft?.workoutId === w.id && !!activeDraft?.log;
               return (
-                <View key={setIdx} style={[s.setCard, isDone && s.setCardDone]}>
-                  {/* ── Header: Set N + botones ── */}
-                  <View style={s.setCardHeader}>
-                    {/* Botón done — 44px mínimo, sin hitSlop */}
-                    <TouchableOpacity
-                      style={s.setDoneArea}
-                      onPress={()=>toggleSetDone(exIdx,setIdx)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[s.setCircle, isDone&&s.setCircleDone]}>
-                        {isDone ? <IconCheck size={14} color="#fff" /> : <Text style={s.setCircleTxt}>{setIdx+1}</Text>}
-                      </View>
-                      <Text style={[s.setLabel, isDone&&s.setLabelDone]}>
-                        {isDone ? 'Completado' : `Set ${setIdx+1}`}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Botón eliminar set / limpiar — sin hitSlop */}
-                    <TouchableOpacity
-                      style={[s.setDelBtn, isOnly&&s.setDelBtnSoft]}
-                      onPress={()=>removeSet(exIdx,setIdx)}
-                      activeOpacity={0.7}
-                    >
-                      {isOnly ? (
-                        <Text style={[s.setDelTxt, s.setDelTxtSoft]}>limpiar</Text>
-                      ) : (
-                        <IconClose size={14} color={colors.grayLight} />
+                <TouchableOpacity
+                  key={w.id}
+                  style={s.routineCard}
+                  onPress={()=>openRoutineModal(w)}
+                  activeOpacity={0.8}
+                >
+                  <View style={s.routineCardIconWrap}>
+                    <IconDumbbell size={17} color={colors.lime} />
+                  </View>
+                  <View style={s.routineCardBody}>
+                    <View style={s.routineCardNameRow}>
+                      <Text style={s.routineCardName} numberOfLines={1}>{w.name||w.day}</Text>
+                      {isInProgress && (
+                        <View style={s.inProgressBadge}>
+                          <Text style={s.inProgressText}>En curso</Text>
+                        </View>
                       )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* ── Inputs: REPS + KG/LB con dato anterior bajo cada uno ── */}
-                  <View style={s.setInputRow}>
-                    <View style={s.setInputGroup}>
-                      <Text style={s.setInputLabel}>REPS</Text>
-                      <TextInput
-                        style={[s.setInput, isDone&&s.setInputDone]}
-                        value={String(st.reps||'')}
-                        onChangeText={v=>updateSet(exIdx,setIdx,'reps',v)}
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor={colors.gray}
-                        editable={!isDone}
-                        selectTextOnFocus
-                        returnKeyType="next"
-                      />
-                      {!isDone&&<Text style={s.setAntLabel}>ant: {prevReps||'—'}</Text>}
                     </View>
-                    <View style={s.setInputGroup}>
-                      <Text style={s.setInputLabel}>{(ex.unit||weightUnit).toUpperCase()}</Text>
-                      <TextInput
-                        style={[s.setInput, isDone&&s.setInputDone]}
-                        value={String(st.weight||'')}
-                        onChangeText={v=>updateSet(exIdx,setIdx,'weight',v)}
-                        keyboardType="numeric"
-                        placeholder="0"
-                        placeholderTextColor={colors.gray}
-                        editable={!isDone}
-                        selectTextOnFocus
-                        returnKeyType="done"
-                      />
-                      {!isDone&&<Text style={s.setAntLabel}>ant: {prevWeight?`${prevWeight}${getLastExUnit(ex.name)||ex.unit||weightUnit}`:'—'}</Text>}
-                    </View>
+                    <Text style={s.routineCardMeta}>{exCount} ejercicio{exCount!==1?'s':''}</Text>
                   </View>
-                </View>
+                  <TouchableOpacity
+                    style={s.routineCardMenuBtn}
+                    onPress={()=>openChipMenu(w)}
+                    activeOpacity={0.6}
+                    hitSlop={{top:6,bottom:6,left:6,right:6}}
+                  >
+                    <IconMenuDots size={18} color={colors.gray} />
+                  </TouchableOpacity>
+                  <IconArrow size={14} color={colors.gray} />
+                </TouchableOpacity>
               );
             })}
-
-            {/* Acciones del ejercicio — solo "+ Set", ✕ está en el header */}
-            <View style={s.exFooter}>
-              <TouchableOpacity style={s.addSetBtn} onPress={()=>addSet(exIdx)}>
-                <Text style={s.addSetTxt}>+ Set</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
-
-        {/* Botón agregar ejercicio a sesión activa */}
-        {log&&(
-          <TouchableOpacity style={s.addExToSessionBtn} onPress={()=>setShowAddExModal(true)} activeOpacity={0.7}>
-            <Text style={s.addExToSessionTxt}>+ Agregar ejercicio</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Botones de acción */}
-        {log&&(
-          <View style={s.actions}>
-            <TouchableOpacity style={s.saveBtn} onPress={saveProgress} disabled={saving}>
-              {saving?<ActivityIndicator size="small" color={colors.purpleLight}/>:<Text style={s.saveBtnText}>Guardar progreso</Text>}
-            </TouchableOpacity>
-            {!completed&&(
-              <TouchableOpacity style={s.finishBtn} onPress={finishWorkout} disabled={saving}>
-                <Text style={s.finishBtnText}>Terminar entrenamiento</Text>
-              </TouchableOpacity>
+            {currentList.length === 0 && (
+              <View style={s.emptyRoutinesCard}>
+                <Text style={s.emptyRoutinesText}>Sin rutinas aún — creá la primera</Text>
+              </View>
             )}
           </View>
         )}
+
+        {/* + Nueva rutina */}
+        <TouchableOpacity style={s.newRoutineCard} onPress={openCreateModal} activeOpacity={0.8}>
+          <View style={[s.routineCardIconWrap,{backgroundColor:colors.purpleDim}]}>
+            <IconPlus size={17} color={colors.purpleLight} />
+          </View>
+          <Text style={s.newRoutineCardText}>Nueva rutina</Text>
+        </TouchableOpacity>
+
+        {/* Importar código */}
+        <TouchableOpacity style={s.importRowBtn} onPress={openImportModal} activeOpacity={0.7}>
+          <View style={s.inlineIconRow}>
+            <IconDownload size={15} color={colors.purpleLight} />
+            <Text style={s.importRowBtnTxt}>Importar código de rutina</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* ── Sección SESIONES RECIENTES ── */}
+        <View style={s.sectionHeaderRow}>
+          <Text style={s.sectionLabel}>SESIONES RECIENTES</Text>
+          <TouchableOpacity onPress={openAllSessionsView} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+            <Text style={s.seeAllText}>Ver todo</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentSessions.length === 0 ? (
+          <View style={s.emptySessionsCard}>
+            <Text style={s.emptySessionsText}>Completá tu primera sesión para ver el historial</Text>
+          </View>
+        ) : (
+          recentSessions.map(lg=>{
+            const d = new Date((lg.date||'')+'T12:00:00');
+            const dayNum  = isNaN(d.getTime()) ? '—' : d.getDate();
+            const monthStr = isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-AR',{month:'short'}).replace('.','');
+            return (
+              <TouchableOpacity
+                key={lg.id || `${lg.date}_${lg.workoutId}`}
+                style={s.sessionRow}
+                onPress={()=>openSessionDetailView(lg)}
+                activeOpacity={0.8}
+              >
+                <View style={s.sessionDateBox}>
+                  <Text style={s.sessionDay}>{dayNum}</Text>
+                  <Text style={s.sessionMonth}>{monthStr}</Text>
+                </View>
+                <View style={s.sessionDivider}/>
+                <View style={s.sessionBody}>
+                  <Text style={s.sessionName} numberOfLines={1}>{sessionWorkoutName(lg)}</Text>
+                  <Text style={s.sessionMeta}>
+                    {(lg.exercises||[]).length} ejercicio{(lg.exercises||[]).length!==1?'s':''} · {sessionDurationLabel(sessionDuration(lg))}
+                  </Text>
+                </View>
+                <IconArrow size={14} color={colors.gray} />
+              </TouchableOpacity>
+            );
+          })
+        )}
       </ScrollView>
-      </KeyboardAvoidingView>
 
       {/* ── Modal agregar ejercicio a sesión activa ── */}
       <Modal visible={showAddExModal} transparent animationType="slide" onRequestClose={()=>{ setShowAddExModal(false); setAddExSearch(''); }}>
@@ -2243,7 +2140,6 @@ ${shareCode}` });
           <View style={[s.bottomSheet,{paddingHorizontal:0,paddingTop:16,paddingBottom:32}]}>
             <View style={s.bottomSheetHandle}/>
             <Text style={[s.bottomSheetTitle,{marginBottom:12}]}>Agregar ejercicio</Text>
-            {/* Buscador */}
             <View style={{paddingHorizontal:16,marginBottom:12}}>
               <TextInput
                 style={[s.createInput]}
@@ -2253,12 +2149,10 @@ ${shareCode}` });
                 onChangeText={setAddExSearch}
                 autoFocus
                 returnKeyType="done"
-                onSubmitEditing={()=>addExExSearch&&addExerciseToSession(addExSearch)}
+                onSubmitEditing={()=>addExSearch&&addExerciseToSession(addExSearch)}
               />
             </View>
-            {/* Lista filtrada */}
             <ScrollView style={{maxHeight:320}} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              {/* Opción libre si no coincide exactamente con ninguna */}
               {addExSearch.trim().length>1&&!Object.values(MUSCLE_EXERCISES).flat().some(e=>e.toLowerCase()===addExSearch.trim().toLowerCase())&&(
                 <TouchableOpacity style={[s.bsOption,{borderBottomWidth:1,borderBottomColor:colors.purpleDim}]} onPress={()=>addExerciseToSession(addExSearch)}>
                   <Text style={[s.bsOptionTxt,{color:colors.purpleLight}]}>+ Agregar "{addExSearch.trim()}"</Text>
@@ -2555,5 +2449,146 @@ function createStyles(colors) {
     // T5 — flechas reordenar
     exOrderBtn: { width:28, height:32, alignItems:'center', justifyContent:'center' },
     exOrderTxt: { fontSize:18, color:colors.gray, fontWeight:'700', lineHeight:22 },
+
+    // ── Dashboard redesign ────────────────────────────────────
+    dashScroll: { paddingBottom: 56 },
+
+    dashHeader: {
+      flexDirection:'row', alignItems:'center', justifyContent:'space-between',
+      paddingHorizontal:18, paddingTop:20, paddingBottom:12,
+    },
+    dashTitle: { fontSize:34, fontWeight:'900', color:colors.white, letterSpacing:-0.5 },
+    dashHeaderActions: { flexDirection:'row', alignItems:'center', gap:8 },
+    dashIconBtn: {
+      width:40, height:40, borderRadius:20,
+      backgroundColor:colors.bgCard, alignItems:'center', justifyContent:'center',
+      borderWidth:1, borderColor:colors.purpleDim,
+    },
+
+    dashCTA: {
+      marginHorizontal:16, marginBottom:16,
+      backgroundColor:colors.lime,
+      borderRadius:RADIUS.lg,
+      paddingVertical:18,
+      flexDirection:'row', alignItems:'center', justifyContent:'center', gap:10,
+    },
+    dashCTAText: {
+      color:colors.accentText || '#000',
+      fontSize:17, fontWeight:'900', letterSpacing:0.2,
+    },
+
+    dashSyncHint: {
+      fontSize:11, color:colors.gray, textAlign:'center',
+      marginBottom:10, marginTop:-4,
+    },
+
+    segmented: {
+      flexDirection:'row',
+      marginHorizontal:16, marginBottom:20,
+      backgroundColor:colors.bgCard,
+      borderRadius:RADIUS.full,
+      padding:3,
+    },
+    segTab: { flex:1, paddingVertical:8, borderRadius:RADIUS.full, alignItems:'center' },
+    segTabActive: { backgroundColor:colors.purple },
+    segTabText: { fontSize:13, color:colors.gray, fontWeight:'600' },
+    segTabTextActive: { color:'#fff', fontWeight:'700' },
+
+    sectionLabel: {
+      fontSize:11, fontWeight:'800', color:colors.gray,
+      textTransform:'uppercase', letterSpacing:1.2,
+      marginHorizontal:18, marginBottom:8,
+    },
+    sectionHeaderRow: {
+      flexDirection:'row', alignItems:'center', justifyContent:'space-between',
+      marginHorizontal:18, marginBottom:8, marginTop:26,
+    },
+    seeAllText: { fontSize:12, color:colors.purpleLight, fontWeight:'700' },
+
+    // Skeleton card
+    routineCardSkeleton: {
+      flexDirection:'row', alignItems:'center',
+      marginHorizontal:16, marginBottom:8,
+      backgroundColor:colors.bgCard,
+      borderRadius:RADIUS.md, padding:14,
+    },
+
+    // Card de rutina
+    routineCard: {
+      flexDirection:'row', alignItems:'center',
+      marginHorizontal:16, marginBottom:8,
+      backgroundColor:colors.bgCard,
+      borderRadius:RADIUS.md, padding:14,
+      borderWidth:0.5, borderColor:colors.purpleDim,
+    },
+    routineCardIconWrap: {
+      width:38, height:38, borderRadius:10,
+      backgroundColor:colors.purpleDim,
+      alignItems:'center', justifyContent:'center',
+      marginRight:12,
+    },
+    routineCardBody: { flex:1, gap:3 },
+    routineCardNameRow: { flexDirection:'row', alignItems:'center', gap:8, flexWrap:'wrap' },
+    routineCardName: { fontSize:14, fontWeight:'800', color:colors.white, flexShrink:1 },
+    routineCardMeta: { fontSize:11, color:colors.gray },
+    routineCardMenuBtn: { width:36, height:36, alignItems:'center', justifyContent:'center', marginRight:2 },
+
+    inProgressBadge: {
+      backgroundColor:colors.purpleDim,
+      borderRadius:RADIUS.full,
+      paddingHorizontal:7, paddingVertical:2,
+      borderWidth:1, borderColor:colors.purple,
+    },
+    inProgressText: {
+      fontSize:9, color:colors.purpleLight,
+      fontWeight:'800', textTransform:'uppercase', letterSpacing:0.5,
+    },
+
+    emptyRoutinesCard: {
+      marginHorizontal:16, marginBottom:8,
+      backgroundColor:colors.bgCard, borderRadius:RADIUS.md,
+      padding:16, alignItems:'center',
+    },
+    emptyRoutinesText: { color:colors.gray, fontSize:13 },
+
+    // + Nueva rutina
+    newRoutineCard: {
+      flexDirection:'row', alignItems:'center',
+      marginHorizontal:16, marginBottom:6,
+      borderRadius:RADIUS.md, padding:14,
+      borderWidth:1.5, borderColor:colors.purpleDim,
+      borderStyle:'dashed',
+    },
+    newRoutineCardText: { fontSize:14, fontWeight:'700', color:colors.purpleLight },
+
+    // Fila de sesión reciente
+    sessionRow: {
+      flexDirection:'row', alignItems:'center',
+      marginHorizontal:16, marginBottom:8,
+      backgroundColor:colors.bgCard,
+      borderRadius:RADIUS.md, padding:13,
+      borderWidth:0.5, borderColor:colors.purpleDim,
+    },
+    sessionDateBox: { alignItems:'center', width:36 },
+    sessionDay: { fontSize:20, fontWeight:'900', color:colors.white, lineHeight:22 },
+    sessionMonth: {
+      fontSize:10, fontWeight:'700', color:colors.gray,
+      textTransform:'uppercase', letterSpacing:0.5,
+    },
+    sessionDivider: {
+      width:1, height:36,
+      backgroundColor:colors.purpleDim,
+      marginHorizontal:13,
+    },
+    sessionBody: { flex:1, gap:3 },
+    sessionName: { fontSize:13, fontWeight:'800', color:colors.white },
+    sessionMeta: { fontSize:11, color:colors.gray },
+
+    emptySessionsCard: {
+      marginHorizontal:16, marginBottom:8,
+      backgroundColor:colors.bgCard, borderRadius:RADIUS.md,
+      padding:18, alignItems:'center',
+    },
+    emptySessionsText: { color:colors.gray, fontSize:13, textAlign:'center', lineHeight:18 },
   });
 }
