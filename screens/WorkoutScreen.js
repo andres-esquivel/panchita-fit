@@ -261,7 +261,9 @@ function sessionWorkoutName(log) {
 }
 
 function sessionCountSets(log) {
-  return (log?.exercises || []).reduce((n, ex) => n + (ex.sets || []).filter(st => st.done !== false).length, 0);
+  // Show all sets that have any data (reps or weight entered, or explicitly marked done).
+  // Do NOT filter on done===true — users often enter reps/weight without tapping the checkmark.
+  return (log?.exercises || []).reduce((n, ex) => n + (ex.sets || []).filter(st => st.reps || st.weight || st.done).length, 0);
 }
 
 function sessionDuration(log) {
@@ -283,13 +285,13 @@ function sessionDurationLabel(minutes) {
 }
 
 function sessionRepsSummary(ex) {
-  const sets = (ex.sets || []).filter(st => st.done !== false);
+  const sets = (ex.sets || []).filter(st => st.reps || st.weight || st.done);
   const reps = sets.map(st => st.reps || '—').join(' / ');
   return reps || '—';
 }
 
 function sessionWeightSummary(ex) {
-  const sets = (ex.sets || []).filter(st => st.done !== false);
+  const sets = (ex.sets || []).filter(st => st.reps || st.weight || st.done);
   const weights = sets.map(st => `${st.weight || '—'} ${ex.unit || st.unit || 'kg'}`).join(' / ');
   return weights || '—';
 }
@@ -391,7 +393,7 @@ function SessionDetailView({ log, onBack, onSaveDate, colors }) {
         {exercises.length === 0 ? (
           <View style={styles.exerciseCard}><Text style={styles.metaText}>Esta sesión no tiene ejercicios guardados.</Text></View>
         ) : exercises.map((ex, idx) => {
-          const sets = (ex.sets || []).filter(st => st.done !== false);
+          const sets = (ex.sets || []).filter(st => st.reps || st.weight || st.done);
           return (
             <View key={`${ex.name}_${idx}`} style={styles.exerciseCard}>
               <View style={styles.exerciseHead}>
@@ -640,6 +642,11 @@ export default function WorkoutScreen({ navigation, route }) {
 
   function openSessionDetailView(sessionLog) {
     if (!sessionLog) return;
+    // DEBUG — raw session document as stored (local/Firestore merged)
+    console.log('[PanchitaFit] openSessionDetailView — raw log:', JSON.stringify({
+      id: sessionLog.id, date: sessionLog.date, completed: sessionLog.completed,
+      exercises: (sessionLog.exercises || []).map(ex => ({ name: ex.name, sets: ex.sets })),
+    }));
     setSessionDetailLog(sessionLog);
     setHistoryDetailLog(null);
     setShowHistoryView(false);
