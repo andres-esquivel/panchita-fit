@@ -97,17 +97,19 @@ export default function Flor({
 
   return (
     <Pressable onPress={handleTap} accessibilityRole="imagebutton" accessibilityLabel="Flor, abuela coach con lentes oscuros">
-      <View style={{ width: size, height: size, overflow: 'hidden' }}>
-        <Image
-          source={IDLE_STRIP}
-          style={{
-            width: size * FRAME_COUNT,
-            height: size,
-            transform: [{ translateX: -frame * size }],
-          }}
-          resizeMode="stretch"
-          fadeDuration={0}
-        />
+      <View style={{ width: size, height: size, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: size, height: size, overflow: 'hidden', transform: [{ scaleX: 1.16 }, { scaleY: 1.04 }] }}>
+          <Image
+            source={IDLE_STRIP}
+            style={{
+              width: size * FRAME_COUNT,
+              height: size,
+              transform: [{ translateX: -frame * size }],
+            }}
+            resizeMode="stretch"
+            fadeDuration={0}
+          />
+        </View>
       </View>
     </Pressable>
   );
