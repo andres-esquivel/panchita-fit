@@ -191,6 +191,16 @@ function formatDateDisplay(isoDate) {
   return `${d}/${m}/${y}`;
 }
 
+function formatHeaderDate(isoDate) {
+  if (!isoDate) return '';
+  const [y, mo, d] = isoDate.split('-').map(Number);
+  const dt = new Date(y, mo - 1, d);
+  const wd = dt.toLocaleDateString('es', { weekday: 'short' });
+  const month = dt.toLocaleDateString('es', { month: 'long' });
+  const wdCap = wd.charAt(0).toUpperCase() + wd.slice(1).replace('.', '');
+  return `${wdCap}, ${d} ${month} ${y}`;
+}
+
 function daysInMonth(month, year) {
   return new Date(year, month, 0).getDate();
 }
@@ -334,79 +344,117 @@ function SessionDetailView({ log, onBack, onSaveDate, colors }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+        {/* Back */}
         <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.75}>
           <IconBack size={16} color={ui.accent} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title} numberOfLines={2}>Session · {sessionWorkoutName(log)}</Text>
-
-        <View style={styles.summaryCard}>
-          <View style={styles.dateRow}>
-            <View>
-              <Text style={styles.label}>date</Text>
-              <Text style={styles.dateText}>{formatDateDisplay(log?.date)}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.8}>
-              <IconEditar size={15} color={ui.accent} />
-              <Text style={styles.editText}>Edit</Text>
-            </TouchableOpacity>
+        {/* Header row: routine name + Editar fecha button */}
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerName} numberOfLines={1}>{sessionWorkoutName(log)}</Text>
+            <Text style={styles.headerDate}>{formatHeaderDate(log?.date)}</Text>
           </View>
-
-          <View style={styles.statGrid}>
-            <View style={styles.statBox}><IconTimer size={16} color={ui.accent} /><Text style={styles.statValue}>{sessionDurationLabel(sessionDuration(log))}</Text><Text style={styles.statLabel}>duration</Text></View>
-            <View style={styles.statBox}><IconDocument size={16} color={ui.accent} /><Text style={styles.statValue}>{exercises.length}</Text><Text style={styles.statLabel}>exercises</Text></View>
-            <View style={styles.statBox}><IconCheck size={16} color={ui.accent} /><Text style={styles.statValue}>{totalSets}</Text><Text style={styles.statLabel}>sets</Text></View>
-          </View>
-
-          {editing && (
-            <View style={styles.inlineEditor}>
-              <Text style={styles.editorTitle}>Cambiar fecha</Text>
-              <View style={styles.readOnlyRow}>
-                <Text style={styles.label}>current date</Text>
-                <Text style={styles.readOnlyText}>{formatDateDisplay(log?.date)}</Text>
-              </View>
-              <Text style={styles.label}>new date</Text>
-              <TextInput
-                value={newDate}
-                onChangeText={setNewDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={ui.dim}
-                style={styles.dateInput}
-                keyboardType="numbers-and-punctuation"
-              />
-              <Text style={styles.note}>Solo se cambia la fecha. Los ejercicios, sets y pesos quedan intactos.</Text>
-              {!!error && <Text style={styles.errorText}>{error}</Text>}
-              <View style={styles.editorActions}>
-                <TouchableOpacity style={[styles.editorBtn, styles.cancelBtn]} onPress={() => { setEditing(false); setNewDate(log?.date || TODAY); setError(''); }} disabled={savingDate}>
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.editorBtn, styles.saveBtn, savingDate && { opacity: 0.65 }]} onPress={saveDate} disabled={savingDate}>
-                  {savingDate ? <ActivityIndicator size="small" color={ui.bg} /> : <Text style={styles.saveText}>Save</Text>}
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+          <TouchableOpacity style={styles.editDateBtn} onPress={() => setEditing(true)} activeOpacity={0.8}>
+            <IconCalendar size={12} color={ui.accent} />
+            <Text style={styles.editDateText}>Editar fecha</Text>
+          </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionTitle}>Exercises</Text>
+        {/* Inline date editor — logic unchanged */}
+        {editing && (
+          <View style={styles.inlineEditor}>
+            <Text style={styles.editorTitle}>Cambiar fecha</Text>
+            <View style={styles.readOnlyRow}>
+              <Text style={styles.editorLabel}>Fecha actual</Text>
+              <Text style={styles.readOnlyText}>{formatDateDisplay(log?.date)}</Text>
+            </View>
+            <Text style={styles.editorLabel}>Nueva fecha</Text>
+            <TextInput
+              value={newDate}
+              onChangeText={setNewDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={ui.dim}
+              style={styles.dateInput}
+              keyboardType="numbers-and-punctuation"
+            />
+            <Text style={styles.note}>Solo se cambia la fecha. Los ejercicios, sets y pesos quedan intactos.</Text>
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <View style={styles.editorActions}>
+              <TouchableOpacity style={[styles.editorBtn, styles.cancelBtn]} onPress={() => { setEditing(false); setNewDate(log?.date || TODAY); setError(''); }} disabled={savingDate}>
+                <Text style={styles.cancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.editorBtn, styles.saveBtn, savingDate && { opacity: 0.65 }]} onPress={saveDate} disabled={savingDate}>
+                {savingDate ? <ActivityIndicator size="small" color={ui.bg} /> : <Text style={styles.saveText}>Guardar</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Stats row — three flat cards */}
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{sessionDurationLabel(sessionDuration(log))}</Text>
+            <Text style={styles.statLabel}>duración</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{exercises.length}</Text>
+            <Text style={styles.statLabel}>ejercicios</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{totalSets}</Text>
+            <Text style={styles.statLabel}>sets</Text>
+          </View>
+        </View>
+
+        {/* Exercise list */}
         {exercises.length === 0 ? (
-          <View style={styles.exerciseCard}><Text style={styles.metaText}>Esta sesión no tiene ejercicios guardados.</Text></View>
+          <View style={styles.exerciseCard}>
+            <Text style={styles.emptyText}>Esta sesión no tiene ejercicios guardados.</Text>
+          </View>
         ) : exercises.map((ex, idx) => {
           const sets = (ex.sets || []).filter(st => st.reps || st.weight || st.done);
+          const unit = ex.unit || 'kg';
           return (
             <View key={`${ex.name}_${idx}`} style={styles.exerciseCard}>
-              <View style={styles.exerciseHead}>
-                <Text style={styles.exerciseName} numberOfLines={1}>{ex.name || `Ejercicio ${idx + 1}`}</Text>
-                <Text style={styles.setPill}>{sets.length} sets</Text>
+              {/* Exercise header */}
+              <View style={styles.exHead}>
+                <Text style={styles.exName} numberOfLines={1}>{ex.name || `Ejercicio ${idx + 1}`}</Text>
+                <Text style={styles.exSetCount}>{sets.length} sets</Text>
               </View>
-              <View style={styles.exerciseMetaRow}>
-                <View style={styles.metaBox}><Text style={styles.label}>reps</Text><Text style={styles.metaText}>{sessionRepsSummary(ex)}</Text></View>
-                <View style={styles.metaBox}><Text style={styles.label}>weight</Text><Text style={styles.metaText}>{sessionWeightSummary(ex)}</Text></View>
+              {/* Column labels */}
+              <View style={styles.colHeader}>
+                <Text style={[styles.colLabel, { width: 36 }]}>SET</Text>
+                <Text style={[styles.colLabel, { flex: 1 }]}>REPS</Text>
+                <Text style={[styles.colLabel, { flex: 1 }]}>PESO</Text>
+                <View style={{ width: 20 }} />
               </View>
+              {/* Per-set rows */}
+              {sets.map((st, si) => {
+                const hasWeight = st.weight && String(st.weight) !== '0' && String(st.weight) !== '';
+                return (
+                  <View key={si} style={styles.setRow}>
+                    <View style={{ width: 36 }}>
+                      <View style={styles.setBadge}>
+                        <Text style={styles.setBadgeText}>{si + 1}</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.setCellText, { flex: 1 }]}>{st.reps || '—'}</Text>
+                    <Text style={[hasWeight ? styles.setCellText : styles.setCellMuted, { flex: 1 }]}>
+                      {hasWeight ? `${st.weight} ${unit}` : `— ${unit}`}
+                    </Text>
+                    <View style={{ width: 20, alignItems: 'center' }}>
+                      <IconCheck size={11} color={ui.accent} />
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           );
         })}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -459,42 +507,54 @@ function createSessionListStyles(ui) {
 
 function createSessionStyles(ui) {
   return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: ui.bg },
-    scroll: { padding: 16, paddingBottom: 34 },
-    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 4 },
+    safe: { flex: 1, backgroundColor: '#0e0e0e' },
+    scroll: { padding: 16, paddingBottom: 40 },
+    // Back
+    backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 8, marginBottom: 6 },
     backText: { color: ui.accent, fontSize: 11, fontWeight: '800' },
-    title: { color: ui.text, fontSize: 15, fontWeight: '900', marginBottom: 12 },
-    summaryCard: { backgroundColor: ui.card, borderRadius: 14, borderWidth: 0.5, borderColor: ui.border, padding: 13, marginBottom: 14 },
-    dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 11 },
-    label: { color: ui.muted, fontSize: 9, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-    dateText: { color: ui.text, fontSize: 13, fontWeight: '800', marginTop: 4 },
-    editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 0.5, borderColor: ui.borderStrong, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
-    editText: { color: ui.accent, fontSize: 10, fontWeight: '800' },
-    statGrid: { flexDirection: 'row', gap: 8 },
-    statBox: { flex: 1, backgroundColor: ui.field, borderRadius: 10, borderWidth: 0.5, borderColor: ui.border, padding: 10, alignItems: 'center' },
-    statValue: { color: ui.text, fontSize: 13, fontWeight: '900', marginTop: 5 },
-    statLabel: { color: ui.muted, fontSize: 9, marginTop: 2 },
-    inlineEditor: { marginTop: 12, borderTopWidth: 0.5, borderTopColor: ui.border, paddingTop: 12 },
-    editorTitle: { color: ui.text, fontSize: 13, fontWeight: '800', marginBottom: 10 },
-    readOnlyRow: { backgroundColor: ui.field, borderRadius: 8, borderWidth: 0.5, borderColor: ui.border, padding: 10, marginBottom: 10 },
-    readOnlyText: { color: ui.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
-    dateInput: { marginTop: 6, borderRadius: 8, borderWidth: 1, borderColor: ui.accent, backgroundColor: ui.field, color: ui.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontWeight: '800' },
-    note: { color: ui.muted, fontSize: 10, lineHeight: 15, marginTop: 8 },
+    // Header
+    headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 14 },
+    headerLeft: { flex: 1 },
+    headerName: { color: '#f0f0f0', fontSize: 14, fontWeight: '500' },
+    headerDate: { color: '#555555', fontSize: 10, marginTop: 3 },
+    editDateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#333333', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, marginTop: 2 },
+    editDateText: { color: '#7fff00', fontSize: 10 },
+    // Inline date editor
+    inlineEditor: { backgroundColor: '#1a1a1a', borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', padding: 12, marginBottom: 14 },
+    editorTitle: { color: '#f0f0f0', fontSize: 12, fontWeight: '700', marginBottom: 10 },
+    editorLabel: { color: '#555555', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    readOnlyRow: { backgroundColor: '#111111', borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', padding: 10, marginBottom: 10 },
+    readOnlyText: { color: '#888888', fontSize: 12, fontWeight: '700', marginTop: 4 },
+    dateInput: { marginTop: 6, borderRadius: 8, borderWidth: 1, borderColor: '#7fff00', backgroundColor: '#111111', color: '#f0f0f0', paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontWeight: '700' },
+    note: { color: '#555555', fontSize: 10, lineHeight: 15, marginTop: 8 },
     errorText: { color: ui.danger, fontSize: 10, marginTop: 8, fontWeight: '700' },
     editorActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
     editorBtn: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-    cancelBtn: { backgroundColor: ui.field, borderWidth: 0.5, borderColor: ui.borderStrong },
-    saveBtn: { backgroundColor: ui.accent },
-    cancelText: { color: ui.muted, fontSize: 11, fontWeight: '800' },
-    saveText: { color: ui.bg, fontSize: 11, fontWeight: '900' },
-    sectionTitle: { color: ui.text, fontSize: 14, fontWeight: '900', marginBottom: 8 },
-    exerciseCard: { backgroundColor: ui.card, borderRadius: 12, borderWidth: 0.5, borderColor: ui.border, padding: 12, marginBottom: 9 },
-    exerciseHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 9 },
-    exerciseName: { color: ui.text, fontSize: 13, fontWeight: '800', flex: 1 },
-    setPill: { color: ui.accent, fontSize: 10, fontWeight: '800', borderWidth: 0.5, borderColor: ui.borderStrong, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
-    exerciseMetaRow: { flexDirection: 'row', gap: 8 },
-    metaBox: { flex: 1, backgroundColor: ui.field, borderRadius: 8, borderWidth: 0.5, borderColor: ui.border, padding: 9 },
-    metaText: { color: ui.text, fontSize: 11, fontWeight: '700', marginTop: 4 },
+    cancelBtn: { backgroundColor: '#111111', borderWidth: 0.5, borderColor: '#333333' },
+    saveBtn: { backgroundColor: '#7fff00' },
+    cancelText: { color: '#555555', fontSize: 11, fontWeight: '800' },
+    saveText: { color: '#0e0e0e', fontSize: 11, fontWeight: '900' },
+    // Stats row
+    statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+    statCard: { flex: 1, backgroundColor: '#1a1a1a', borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', paddingVertical: 10, paddingHorizontal: 8, alignItems: 'center' },
+    statValue: { color: '#7fff00', fontSize: 14, fontWeight: '500' },
+    statLabel: { color: '#555555', fontSize: 8, marginTop: 3 },
+    // Exercise card
+    exerciseCard: { backgroundColor: '#1a1a1a', borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', marginBottom: 10, overflow: 'hidden' },
+    exHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#222222' },
+    exName: { color: '#f0f0f0', fontSize: 12, fontWeight: '500', flex: 1 },
+    exSetCount: { color: '#555555', fontSize: 9 },
+    // Column header
+    colHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6 },
+    colLabel: { color: '#444444', fontSize: 9, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+    // Set rows
+    setRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: '#1e1e1e' },
+    setBadge: { width: 22, height: 20, backgroundColor: '#203d00', borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+    setBadgeText: { color: '#7fff00', fontSize: 9, fontWeight: '700' },
+    setCellText: { color: '#f0f0f0', fontSize: 12 },
+    setCellMuted: { color: '#555555', fontSize: 12 },
+    // Empty state
+    emptyText: { color: '#555555', fontSize: 11, padding: 12 },
   });
 }
 
