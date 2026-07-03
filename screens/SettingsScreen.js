@@ -10,6 +10,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar, IconWarning } from '../components/icons';
 import Sisifo from '../components/Sisifo';
 import Algodon from '../components/Algodon';
+import Patito from '../components/Patito';
 import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
@@ -466,6 +467,15 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.rowLabel}>Algodón</Text>
               <Text style={s.rowSub}>Conejo angora fluffy. Rebota suave, juzga fuerte. Tocá para verlo activarse.</Text>
+            </View>
+          </View>
+          <View style={[s.mascotRow, s.mascotRowDivider]}>
+            <View style={s.mascotStage}>
+              <Patito state="idle" size={112} autoWave />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Patito</Text>
+              <Text style={s.rowSub}>Pato mini coach. Se ve tierno, pero también cuenta tus descansos.</Text>
             </View>
           </View>
         </View>

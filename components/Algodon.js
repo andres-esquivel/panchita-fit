@@ -19,12 +19,12 @@ const IDLE_STRIP = require('../assets/algodon-pixel-idle-strip.png');
 const FRAME_COUNT = 6;
 
 const STATE_CONFIG = {
-  idle:     { fps: 3, duration: null },
-  neutral:  { fps: 3, duration: null },
-  wave:     { fps: 7, duration: 1900 },
-  happy:    { fps: 8, duration: 2300 },
-  bounce:   { fps: 8, duration: 2300 },
-  angry:    { fps: 9, duration: 1500 },
+  idle:     { fps: 2, duration: null },
+  neutral:  { fps: 2, duration: null },
+  wave:     { fps: 4, duration: 2200 },
+  happy:    { fps: 5, duration: 2600 },
+  bounce:   { fps: 5, duration: 2600 },
+  angry:    { fps: 6, duration: 1800 },
   thinking: { fps: 2, duration: null },
   sleepy:   { fps: 1.5, duration: null },
 };
