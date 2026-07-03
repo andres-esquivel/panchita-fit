@@ -338,13 +338,20 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
             unit: ex.unit || weightUnit,
           })),
         };
-        setLog(validatedLog);
+        // FIX: use functional update to avoid overwriting data the user entered while getLogs() was pending.
+        // If logHasProgress is already true, the user already started entering reps/weight — keep their data.
+        setLog(prev => {
+          if (prev && prev.workoutId === workout.id && logHasProgress(prev) && !prev.completed) {
+            return prev; // user entered data during async load, don't overwrite
+          }
+          lastSavedLogRef.current = logSignature(validatedLog);
+          lastDraftLogRef.current = logSignature(validatedLog);
+          return validatedLog;
+        });
         setCompleted(existingLog.completed);
-        lastSavedLogRef.current = logSignature(validatedLog);
-        lastDraftLogRef.current = logSignature(validatedLog);
         setAutoSaveState('saved');
       } else if (workout.isRecurring && last) {
-        setLog({
+        const recurringLog = {
           ...blankLog,
           exercises: blankLog.exercises.map(ex=>{
             const lastEx = last.exercises?.find(e=>e.name===ex.name);
@@ -355,6 +362,13 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
               sets: (lastEx.sets||[]).map(st=>({ reps:st.reps||'', weight:st.weight||'', done:false })),
             };
           }),
+        };
+        // Same guard: don't overwrite if user already started entering data
+        setLog(prev => {
+          if (prev && prev.workoutId === workout.id && logHasProgress(prev) && !prev.completed) {
+            return prev;
+          }
+          return recurringLog;
         });
       }
     } catch(e) { console.warn('initSession logs load failed:',e); }
@@ -478,6 +492,11 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
     if (!log) return;
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     const finishedLog = { ...log, date: sessionDate || log.date, backfilled: !!isBackfill || !!log.backfilled, completed:true };
+    // DEBUG — shows exact state captured at the moment the user taps "Terminar"
+    console.log('[PanchitaFit] finishWorkout — log snapshot:', JSON.stringify({
+      id: finishedLog.id, date: finishedLog.date, completed: finishedLog.completed,
+      exercises: (finishedLog.exercises||[]).map(ex=>({ name:ex.name, sets:ex.sets })),
+    }));
     setSaving(true);
     try {
       await saveLog(finishedLog);

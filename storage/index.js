@@ -89,7 +89,19 @@ function normalizeLogForStorage(log) {
   const date = log?.date || new Date().toISOString().split('T')[0];
   const workoutId = log?.workoutId || 'session';
   const id = log?.id || `${date}_${workoutId}`;
-  return { ...log, id, date, workoutId, updatedAt: new Date().toISOString() };
+  // Defensive normalization: ensure exercises/sets are always arrays with proper field types.
+  // Prevents undefined/null from reaching Firestore if state is ever incomplete.
+  const exercises = (log?.exercises || []).map(ex => ({
+    ...ex,
+    name: ex?.name || '',
+    unit: ex?.unit || 'kg',
+    sets: (ex?.sets || []).map(st => ({
+      reps:   String(st?.reps   ?? ''),
+      weight: String(st?.weight ?? ''),
+      done:   !!st?.done,
+    })),
+  }));
+  return { ...log, id, date, workoutId, exercises, updatedAt: new Date().toISOString() };
 }
 
 // ─── Onboarding ───────────────────────────────────────────
@@ -413,6 +425,12 @@ export async function saveLog(log) {
   const normalized = await saveLogDraft(log);
   if (!normalized) return null;
   const { id } = normalized;
+
+  // DEBUG — shows exact payload sent to Firestore
+  console.log('[PanchitaFit] saveLog → Firestore payload:', JSON.stringify({
+    id: normalized.id, date: normalized.date, completed: normalized.completed,
+    exercises: (normalized.exercises||[]).map(ex=>({ name:ex.name, sets:ex.sets })),
+  }));
 
   // Sync remoto en segundo plano. Panchita no espera al WiFi para contar reps.
   // Wrapped in try/catch: uid() se evalúa síncronamente y puede lanzar si auth no está listo.
