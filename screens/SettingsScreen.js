@@ -9,6 +9,7 @@ import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar, IconWarning } from '../components/icons';
 import Sisifo from '../components/Sisifo';
+import Algodon from '../components/Algodon';
 import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
@@ -458,6 +459,15 @@ export default function SettingsScreen() {
               <Text style={s.rowSub}>Piedra, montaña y cero excusas. Tocá la mascota para verla empujar.</Text>
             </View>
           </View>
+          <View style={[s.mascotRow, s.mascotRowDivider]}>
+            <View style={s.mascotStage}>
+              <Algodon state="idle" size={112} autoWave />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Algodón</Text>
+              <Text style={s.rowSub}>Conejo angora fluffy. Rebota suave, juzga fuerte. Tocá para verlo activarse.</Text>
+            </View>
+          </View>
         </View>
 
         {/* ── APP ── */}
@@ -627,6 +637,7 @@ function createStyles(colors) {
       backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim,
       alignItems:'center', justifyContent:'center', overflow:'hidden',
     },
+    mascotRowDivider: { borderTopWidth:1, borderTopColor:colors.purpleDim },
 
     // ── Info rows ──
     infoRow: {
