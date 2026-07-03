@@ -11,6 +11,7 @@ import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, 
 import Sisifo from '../components/Sisifo';
 import Algodon from '../components/Algodon';
 import Patito from '../components/Patito';
+import Flor from '../components/Flor';
 import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
@@ -476,6 +477,15 @@ export default function SettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.rowLabel}>Patito</Text>
               <Text style={s.rowSub}>Pato mini coach. Se ve tierno, pero también cuenta tus descansos.</Text>
+            </View>
+          </View>
+          <View style={[s.mascotRow, s.mascotRowDivider]}>
+            <View style={s.mascotStage}>
+              <Flor state="idle" size={112} autoWave />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rowLabel}>Flor</Text>
+              <Text style={s.rowSub}>Abuela coach con lentes oscuros. Te cuida, te reta y no compra excusas.</Text>
             </View>
           </View>
         </View>
