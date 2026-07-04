@@ -19,6 +19,7 @@ import Sisifo from './Sisifo';
 import Algodon from './Algodon';
 import Patito from './Patito';
 import Flor from './Flor';
+import Cleopatitas from './Cleopatitas';
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 const STRIPS = {
@@ -175,6 +176,9 @@ export default function Panchita(props) {
   }
   if (selectedMascot === 'flor') {
     return <Flor {...props} state={mapStateForMascot(props.state)} />;
+  }
+  if (selectedMascot === 'cleopatitas') {
+    return <Cleopatitas {...props} state={mapStateForMascot(props.state)} />;
   }
   return <PanchitaSprite {...props} />;
 }

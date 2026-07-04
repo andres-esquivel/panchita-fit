@@ -220,7 +220,7 @@ export async function saveUser(user) {
 
 // ─── Mascota seleccionada ─────────────────────────────────
 const SELECTED_MASCOT_GLOBAL_KEY = 'panchita_selected_mascot';
-const VALID_MASCOTS = new Set(['panchita', 'sisifo', 'algodon', 'patito', 'flor']);
+const VALID_MASCOTS = new Set(['panchita', 'sisifo', 'algodon', 'patito', 'flor', 'cleopatitas']);
 const mascotListeners = new Set();
 
 function cleanMascotKey(value) {

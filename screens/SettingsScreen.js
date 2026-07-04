@@ -13,6 +13,7 @@ import Sisifo from '../components/Sisifo';
 import Algodon from '../components/Algodon';
 import Patito from '../components/Patito';
 import Flor from '../components/Flor';
+import Cleopatitas from '../components/Cleopatitas';
 import { getUser, saveUser, getSelectedMascot, saveSelectedMascot, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
@@ -480,6 +481,10 @@ export default function SettingsScreen() {
             {
               key: 'flor', name: 'Flor', desc: 'Abuela coach con lentes oscuros. Te cuida, te reta y no compra excusas.',
               render: () => <Flor state="idle" size={112} autoWave />,
+            },
+            {
+              key: 'cleopatitas', name: 'Cleopatitas', desc: 'Gatita gris hiperactiva. Destruye excusas, descansos largos y probablemente una maceta.',
+              render: () => <Cleopatitas state="idle" size={112} autoWave />,
             },
           ].map((item, idx) => {
             const active = selectedMascot === item.key;
