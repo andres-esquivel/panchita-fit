@@ -8,11 +8,12 @@ import { auth } from '../config/firebase';
 import { RADIUS } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
 import { IconBolt, IconFire, IconLeaf, IconMoon, IconSleep, IconSun, IconTimer, IconWater, IconCheck, IconClose, IconMuscle, IconEditar, IconWarning } from '../components/icons';
+import { PanchitaSprite } from '../components/Panchita';
 import Sisifo from '../components/Sisifo';
 import Algodon from '../components/Algodon';
 import Patito from '../components/Patito';
 import Flor from '../components/Flor';
-import { getUser, saveUser, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
+import { getUser, saveUser, getSelectedMascot, saveSelectedMascot, getRestTimerSeconds, saveRestTimerSeconds, getNotificationPrefs, saveNotificationPrefs, getWeekSchedule, saveWeekSchedule, getLocalCustomRoutines } from '../storage';
 
 
 function isWebNotificationSupported() {
@@ -93,6 +94,7 @@ export default function SettingsScreen() {
   const [profileName, setProfileName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [nameSaved, setNameSaved] = useState(false);
+  const [selectedMascot, setSelectedMascot] = useState('panchita');
 
   // T3 — programación semanal
   const [weekSchedule, setWeekSchedule] = useState({});
@@ -102,6 +104,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     getUser().then(u => setProfileName(u?.name || '')).catch(() => {});
+    getSelectedMascot().then(setSelectedMascot).catch(() => {});
     getRestTimerSeconds().then(setRestTimerSeconds);
     getNotificationPrefs().then(prefs => {
       setNotificationPrefs(prefs);
@@ -208,6 +211,11 @@ export default function SettingsScreen() {
     } finally {
       setSavingName(false);
     }
+  }
+
+  async function handleSelectMascot(key) {
+    setSelectedMascot(key);
+    await saveSelectedMascot(key);
   }
 
   function handleLogout() {
@@ -452,42 +460,54 @@ export default function SettingsScreen() {
         {/* ── MASCOTAS ── */}
         <Text style={s.sectionTitle}>MASCOTAS</Text>
         <View style={s.card}>
-          <View style={s.mascotRow}>
-            <View style={s.mascotStage}>
-              <Sisifo state="push" size={112} autoWave />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Sísifo</Text>
-              <Text style={s.rowSub}>Piedra, montaña y cero excusas. Tocá la mascota para verla empujar.</Text>
-            </View>
-          </View>
-          <View style={[s.mascotRow, s.mascotRowDivider]}>
-            <View style={s.mascotStage}>
-              <Algodon state="idle" size={112} autoWave />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Algodón</Text>
-              <Text style={s.rowSub}>Conejo angora fluffy. Rebota suave, juzga fuerte. Tocá para verlo activarse.</Text>
-            </View>
-          </View>
-          <View style={[s.mascotRow, s.mascotRowDivider]}>
-            <View style={s.mascotStage}>
-              <Patito state="idle" size={112} autoWave />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Patito</Text>
-              <Text style={s.rowSub}>Pato mini coach. Se ve tierno, pero también cuenta tus descansos.</Text>
-            </View>
-          </View>
-          <View style={[s.mascotRow, s.mascotRowDivider]}>
-            <View style={s.mascotStage}>
-              <Flor state="idle" size={112} autoWave />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowLabel}>Flor</Text>
-              <Text style={s.rowSub}>Abuela coach con lentes oscuros. Te cuida, te reta y no compra excusas.</Text>
-            </View>
-          </View>
+          {[
+            {
+              key: 'panchita', name: 'Panchita', desc: 'La original. Sarcástica, musculosa y demasiado pendiente de tus descansos.',
+              render: () => <PanchitaSprite state="idle" size={112} autoWave />,
+            },
+            {
+              key: 'sisifo', name: 'Sísifo', desc: 'Piedra, montaña y cero excusas. Tocá la mascota para verla empujar.',
+              render: () => <Sisifo state="push" size={112} autoWave />,
+            },
+            {
+              key: 'algodon', name: 'Algodón', desc: 'Conejo angora fluffy. Rebota suave, juzga fuerte. Tocá para verlo activarse.',
+              render: () => <Algodon state="idle" size={112} autoWave />,
+            },
+            {
+              key: 'patito', name: 'Patito', desc: 'Pato mini coach. Se ve tierno, pero también cuenta tus descansos.',
+              render: () => <Patito state="idle" size={112} autoWave />,
+            },
+            {
+              key: 'flor', name: 'Flor', desc: 'Abuela coach con lentes oscuros. Te cuida, te reta y no compra excusas.',
+              render: () => <Flor state="idle" size={112} autoWave />,
+            },
+          ].map((item, idx) => {
+            const active = selectedMascot === item.key;
+            return (
+              <TouchableOpacity
+                key={item.key}
+                style={[s.mascotRow, idx > 0 && s.mascotRowDivider, active && s.mascotRowActive]}
+                onPress={() => handleSelectMascot(item.key)}
+                activeOpacity={0.78}
+              >
+                <View style={[s.mascotStage, active && s.mascotStageActive]}>
+                  {item.render()}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={s.mascotTitleRow}>
+                    <Text style={[s.rowLabel, active && s.mascotActiveTitle]}>{item.name}</Text>
+                    {active && (
+                      <View style={s.selectedPill}>
+                        <IconCheck size={11} color={colors.accentText || '#111'} />
+                        <Text style={s.selectedPillTxt}>Activa</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={s.rowSub}>{item.desc}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* ── APP ── */}
@@ -652,11 +672,27 @@ function createStyles(colors) {
       flexDirection:'row', alignItems:'center', gap:14,
       paddingVertical:14, paddingHorizontal:16,
     },
+    mascotRowActive: {
+      backgroundColor: colors.purpleDim,
+    },
     mascotStage: {
       width:118, height:118, borderRadius:RADIUS.lg,
       backgroundColor:colors.bgInput, borderWidth:1, borderColor:colors.purpleDim,
       alignItems:'center', justifyContent:'center', overflow:'hidden',
     },
+    mascotStageActive: {
+      borderColor: colors.lime,
+      borderWidth: 2,
+      shadowColor: colors.lime, shadowOpacity:0.24, shadowRadius:10, shadowOffset:{width:0,height:0},
+    },
+    mascotTitleRow: { flexDirection:'row', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap' },
+    mascotActiveTitle: { color: colors.lime },
+    selectedPill: {
+      flexDirection:'row', alignItems:'center', gap:4,
+      paddingHorizontal:8, paddingVertical:3, borderRadius:RADIUS.full,
+      backgroundColor:colors.lime,
+    },
+    selectedPillTxt: { color:colors.accentText || '#111', fontSize:10, fontWeight:'900' },
     mascotRowDivider: { borderTopWidth:1, borderTopColor:colors.purpleDim },
 
     // ── Info rows ──

@@ -218,6 +218,60 @@ export async function saveUser(user) {
   return merged;
 }
 
+// ─── Mascota seleccionada ─────────────────────────────────
+const SELECTED_MASCOT_GLOBAL_KEY = 'panchita_selected_mascot';
+const VALID_MASCOTS = new Set(['panchita', 'sisifo', 'algodon', 'patito', 'flor']);
+const mascotListeners = new Set();
+
+function cleanMascotKey(value) {
+  return VALID_MASCOTS.has(value) ? value : 'panchita';
+}
+
+export function subscribeSelectedMascot(listener) {
+  mascotListeners.add(listener);
+  return () => mascotListeners.delete(listener);
+}
+
+function notifySelectedMascot(value) {
+  mascotListeners.forEach(fn => {
+    try { fn(value); } catch (error) { console.warn('selected mascot listener failed:', error); }
+  });
+}
+
+export async function getSelectedMascot() {
+  try {
+    if (auth.currentUser) {
+      const localRaw = await AsyncStorage.getItem(localKey('selectedMascot'));
+      if (localRaw) return cleanMascotKey(localRaw);
+
+      const profile = await getUser().catch(() => null);
+      if (profile?.selectedMascot) return cleanMascotKey(profile.selectedMascot);
+    }
+
+    const globalRaw = await AsyncStorage.getItem(SELECTED_MASCOT_GLOBAL_KEY);
+    return cleanMascotKey(globalRaw);
+  } catch {
+    return 'panchita';
+  }
+}
+
+export async function saveSelectedMascot(value) {
+  const mascot = cleanMascotKey(value);
+  await AsyncStorage.setItem(SELECTED_MASCOT_GLOBAL_KEY, mascot);
+
+  if (auth.currentUser) {
+    await AsyncStorage.setItem(localKey('selectedMascot'), mascot);
+    withTimeout(
+      setDoc(userDoc('profile/data'), { selectedMascot: mascot, updatedAt: new Date().toISOString() }, { merge: true }),
+      6500,
+      'saveSelectedMascot'
+    ).catch(error => console.warn('Remote selected mascot sync failed:', error));
+  }
+
+  notifySelectedMascot(mascot);
+  return mascot;
+}
+
 // ─── Rutinas base ──────────────────────────────────────────
 // Versión local-only: retorna lo que hay en AsyncStorage sin tocar red.
 export async function getLocalWorkouts() {

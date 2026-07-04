@@ -14,6 +14,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Image, Pressable } from 'react-native';
+import { getSelectedMascot, subscribeSelectedMascot } from '../storage';
+import Sisifo from './Sisifo';
+import Algodon from './Algodon';
+import Patito from './Patito';
+import Flor from './Flor';
 
 // ── Assets ────────────────────────────────────────────────────────────────────
 const STRIPS = {
@@ -47,7 +52,7 @@ const STATE_CONFIG = {
 };
 
 // ── Componente ────────────────────────────────────────────────────────────────
-export default function Panchita({
+export function PanchitaSprite({
   state    = 'idle',
   size     = 200,
   autoWave = true,
@@ -136,4 +141,40 @@ export default function Panchita({
       </View>
     </Pressable>
   );
+}
+
+function mapStateForMascot(state) {
+  if (state === 'flex' || state === 'celebrate') return 'happy';
+  if (state === 'bark') return 'angry';
+  if (state === 'coach') return 'thinking';
+  if (state === 'tired') return 'sleepy';
+  if (state === 'waveLoop') return 'wave';
+  return state || 'idle';
+}
+
+export default function Panchita(props) {
+  const [selectedMascot, setSelectedMascot] = useState('panchita');
+
+  useEffect(() => {
+    let alive = true;
+    getSelectedMascot().then(value => {
+      if (alive) setSelectedMascot(value || 'panchita');
+    }).catch(() => {});
+    const unsub = subscribeSelectedMascot(value => setSelectedMascot(value || 'panchita'));
+    return () => { alive = false; unsub?.(); };
+  }, []);
+
+  if (selectedMascot === 'sisifo') {
+    return <Sisifo {...props} state={mapStateForMascot(props.state)} />;
+  }
+  if (selectedMascot === 'algodon') {
+    return <Algodon {...props} state={mapStateForMascot(props.state)} />;
+  }
+  if (selectedMascot === 'patito') {
+    return <Patito {...props} state={mapStateForMascot(props.state)} />;
+  }
+  if (selectedMascot === 'flor') {
+    return <Flor {...props} state={mapStateForMascot(props.state)} />;
+  }
+  return <PanchitaSprite {...props} />;
 }
