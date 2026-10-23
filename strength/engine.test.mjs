@@ -59,4 +59,18 @@ t('Serie de 1RM estimado por fecha', () => {
   const s = E.e1rmSeries(logs, 'prensa');
   assert.equal(s.length, 2); assert.ok(s[1].e1rm > s[0].e1rm);
 });
+t('Récord: supera el mejor previo', () => {
+  assert.equal(E.isNewRecord(130, 105, 10, 2), true);
+  assert.equal(E.isNewRecord(150, 105, 10, 2), false);
+});
+t('Resumen semanal: volumen, RIR y récords', () => {
+  const logs = [
+    { completed: true, date: '2026-10-01', exercises: [{ name: 'Prensa', sets: [{ reps: '10', weight: '100', rir: '2' }] }] },
+    { completed: true, date: '2026-10-19', exercises: [{ name: 'Prensa', unit: 'lb', sets: [{ reps: '10', weight: '242', rir: 0 }, { reps: '8', weight: '220', rir: 2 }] }] },
+  ];
+  const r = E.weeklyStrengthSummary(logs, '2026-10-18', '2026-10-24');
+  assert.equal(r.failureSets, 1); assert.equal(r.rirSets, 2); assert.equal(r.avgRir, 1);
+  assert.equal(r.records.length, 1); assert.equal(r.records[0].name, 'Prensa');
+  near(r.volumeKg, 1897, 2, 'vol');
+});
 console.log(`\n${n} pruebas OK`);

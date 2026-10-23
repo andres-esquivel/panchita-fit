@@ -4,7 +4,7 @@ import {
   query, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
-import { exerciseIdFromName, parseRir, e1rmSeries } from '../strength/engine';
+import { exerciseIdFromName, parseRir, e1rmSeries, weeklyStrengthSummary } from '../strength/engine';
 
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -682,20 +682,12 @@ export async function getWeeklyVolume(weekOffset = 0) {
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
   const startStr = weekStart.toISOString().split('T')[0];
   const endStr   = weekEnd.toISOString().split('T')[0];
-  let volume = 0;
-  let daysCompleted = new Set();
-  for (const log of logs) {
-    if (!log.completed || log.date < startStr || log.date > endStr) continue;
-    daysCompleted.add(log.date);
-    for (const ex of (log.exercises || [])) {
-      for (const set of (ex.sets || [])) {
-        const w = parseFloat(set.weight) || 0;
-        const r = parseFloat(set.reps) || 0;
-        volume += w * r;
-      }
-    }
-  }
-  return { volume: Math.round(volume), daysCompleted: daysCompleted.size, startStr, endStr };
+  const daysCompleted = new Set(
+    logs.filter(l => l.completed && l.date >= startStr && l.date <= endStr).map(l => l.date)
+  );
+  // Volumen en kg (convierte series en lb) + RIR, series al fallo y récords de la semana.
+  const strength = weeklyStrengthSummary(logs, startStr, endStr);
+  return { volume: strength.volumeKg, daysCompleted: daysCompleted.size, startStr, endStr, strength };
 }
 
 // ─── Grupos musculares ─────────────────────────────────────

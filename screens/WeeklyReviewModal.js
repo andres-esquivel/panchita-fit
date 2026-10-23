@@ -8,6 +8,7 @@ import { RADIUS } from '../constants/theme';
 import { getWeeklyVolume, saveWeeklyReview } from '../storage';
 import Panchita from '../components/Panchita';
 import { IconArrow, IconChart, IconCheck, IconClose, IconMessage, IconTarget } from '../components/icons';
+import { formatWeight } from '../strength/engine';
 import { GROQ_API_KEY } from '../config';
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
@@ -34,6 +35,16 @@ function getDayPhrase(completed, planned) {
   if (completed >= planned * 0.8) return `${completed} de ${planned} días. Casi. No sé si eso cuenta.`;
   return `${completed} de ${planned} días. La mitad, más o menos.`;
 }
+function getStrengthPhrase(st) {
+  if (!st) return null;
+  if (st.records.length >= 3) return 'Récords por todos lados. ¿Te cambiaron las pesas?';
+  if (st.records.length > 0) return 'Hubo récord. No te lo creas mucho, pero bien.';
+  if (st.failureSets >= 10) return 'Mucho fallo esta semana. Ojo con la fatiga.';
+  if (st.avgRir !== null && st.avgRir >= 3) return 'RIR alto. Te estás guardando algo, ¿verdad?';
+  if (st.rirSets > 0) return 'Intensidad en su punto. Sigue así.';
+  return null;
+}
+
 function getVolumePhrase(pct) {
   if (pct === 0 || isNaN(pct)) return null;
   if (pct > 20) return `${pct}% más de volumen que la semana anterior. Eso sí es progreso.`;
@@ -108,6 +119,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
   const [volThis, setVolThis]             = useState(0);
   const [volLast, setVolLast]             = useState(0);
   const [volumeDeltaPct, setVolumeDeltaPct] = useState(0);
+  const [strength, setStrength]           = useState(null);
   const [reflection, setReflection]       = useState('');
   const [nextGoal, setNextGoal]           = useState('');
   const [panchitaResponse, setPanchitaResponse] = useState('');
@@ -129,6 +141,7 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
     try {
       const [thisW, lastW] = await Promise.all([getWeeklyVolume(0), getWeeklyVolume(1)]);
       setDaysCompleted(thisW.daysCompleted);
+      setStrength(thisW.strength || null);
       setVolThis(thisW.volume);
       setVolLast(lastW.volume);
       const pct = lastW.volume > 0
@@ -166,6 +179,9 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
       volumeThisWeek: volThis,
       volumeLastWeek: volLast,
       volumeDeltaPct,
+      records: (strength?.records || []).map(r => r.name),
+      failureSets: strength?.failureSets ?? 0,
+      avgRir: strength?.avgRir ?? null,
       reflection: reflection.trim(),
       nextGoal: nextGoal.trim(),
       panchitaResponse,
@@ -236,6 +252,32 @@ export default function WeeklyReviewModal({ visible, weekKey, weekEnd, onClose }
                           </Text>
                           {volumePhrase && (
                             <Text style={s.summaryPhrase}>{volumePhrase}</Text>
+                          )}
+                        </View>
+                      </View>
+                    )}
+
+                    {strength && (strength.records.length > 0 || strength.rirSets > 0) && (
+                      <View style={s.summaryCard}>
+                        <IconTarget size={22} color={colors.lime} />
+                        <View style={{ flex: 1 }}>
+                          {strength.records.length > 0 && (
+                            <Text style={s.summaryMain}>
+                              {strength.records.length === 1 ? 'Récord' : `${strength.records.length} récords`}: {strength.records.slice(0, 3).map(r => r.name).join(', ')}
+                            </Text>
+                          )}
+                          {strength.records.slice(0, 3).map(r => (
+                            <Text key={r.id} style={s.summaryDetail}>
+                              {r.name}: 1RM est. {formatWeight(r.prevKg)} → {formatWeight(r.e1rmKg)} kg
+                            </Text>
+                          ))}
+                          {strength.rirSets > 0 && (
+                            <Text style={strength.records.length ? s.summaryDetail : s.summaryMain}>
+                              {strength.failureSets} {strength.failureSets === 1 ? 'serie' : 'series'} al fallo · RIR promedio {strength.avgRir}
+                            </Text>
+                          )}
+                          {getStrengthPhrase(strength) && (
+                            <Text style={s.summaryPhrase}>{getStrengthPhrase(strength)}</Text>
                           )}
                         </View>
                       </View>
@@ -402,6 +444,7 @@ function createStyles(colors) {
     summaryIcon:  { fontSize: 22 },
     summaryMain:  { fontSize: 16, fontWeight: '700', color: colors.white, marginBottom: 4 },
     summaryPhrase:{ fontSize: 13, color: colors.purpleLight, fontStyle: 'italic' },
+    summaryDetail:{ fontSize: 13, color: colors.grayLight, marginBottom: 4 },
 
     quoteRow:     { flexDirection:'row', alignItems:'center', justifyContent:'center', gap:8, marginVertical:18, paddingHorizontal:8 },
     panchitaQuote:{ fontSize: 15, color: colors.white, fontStyle: 'italic', textAlign: 'center', lineHeight: 22, flexShrink:1 },

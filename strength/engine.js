@@ -222,3 +222,62 @@ export function e1rmSeries(logs = [], exerciseId, unit = 'kg') {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, kg]) => ({ date, e1rm: Math.round(fromKg(kg, unit) * 10) / 10 }));
 }
+
+// ─── Récords y resumen semanal ───────────────────────────
+/** Mejor 1RM estimado (kg) por ejercicio en los logs dados. { id: { kg, name } } */
+export function bestE1rmByExercise(logs = [], { beforeDate } = {}) {
+  const best = {};
+  for (const log of logs) {
+    if (!log?.completed) continue;
+    if (beforeDate && !(String(log.date) < beforeDate)) continue;
+    for (const ex of log.exercises || []) {
+      const id = ex.exerciseId || exerciseIdFromName(ex.name);
+      for (const st of ex.sets || []) {
+        const e = estimate1RM(toKg(st.weight, ex.unit || 'kg'), num(st.reps), parseRir(st.rir));
+        if (e && (!best[id] || e > best[id].kg)) best[id] = { kg: e, name: ex.name };
+      }
+    }
+  }
+  return best;
+}
+
+/** ¿Esta serie supera el mejor 1RM estimado previo? (margen 0.5 % para evitar falsos récords) */
+export function isNewRecord(prevBestKg, weightKg, reps, rir) {
+  const e = estimate1RM(weightKg, reps, rir);
+  if (!e || !(prevBestKg > 0)) return false;
+  return e > prevBestKg * 1.005;
+}
+
+/**
+ * Resumen de la semana [startStr, endStr]:
+ * volumen en kg (convierte lb), series con RIR, series al fallo, RIR promedio y récords.
+ */
+export function weeklyStrengthSummary(logs = [], startStr, endStr) {
+  const inWeek = l => l?.completed && l.date >= startStr && l.date <= endStr;
+  const prevBest = bestE1rmByExercise(logs, { beforeDate: startStr });
+  const weekBest = bestE1rmByExercise(logs.filter(inWeek));
+  let volumeKg = 0, rirSets = 0, rirSum = 0, failureSets = 0, hardSets = 0;
+  for (const log of logs.filter(inWeek)) {
+    for (const ex of log.exercises || []) {
+      for (const st of ex.sets || []) {
+        const w = toKg(st.weight, ex.unit || 'kg'), r = num(st.reps);
+        if (w > 0 && r > 0) volumeKg += w * r;
+        const rir = parseRir(st.rir);
+        if (rir === null) continue;
+        rirSets++; rirSum += rir;
+        if (rir === 0) failureSets++;
+        if (rir <= 3) hardSets++;
+      }
+    }
+  }
+  const records = Object.entries(weekBest)
+    .filter(([id, b]) => prevBest[id] && b.kg > prevBest[id].kg * 1.005)
+    .map(([id, b]) => ({ id, name: b.name, e1rmKg: b.kg, prevKg: prevBest[id].kg }))
+    .sort((a, b) => (b.e1rmKg / b.prevKg) - (a.e1rmKg / a.prevKg));
+  return {
+    volumeKg: Math.round(volumeKg),
+    rirSets, failureSets, hardSets,
+    avgRir: rirSets ? Math.round((rirSum / rirSets) * 10) / 10 : null,
+    records,
+  };
+}
