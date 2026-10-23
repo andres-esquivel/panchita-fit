@@ -24,3 +24,6 @@ GoogleService-Info.plist
 # API keys and Firebase config (keep local only)
 config.js
 config/firebase.js
+
+# Archivos temporales del sistema de archivos
+.fuse_hidden*

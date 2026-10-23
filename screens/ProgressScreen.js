@@ -218,6 +218,7 @@ export default function ProgressScreen() {
   const [bodyWeights, setBodyWeights]     = useState([]);
   const [exercises, setExercises]         = useState([]);
   const [selectedEx, setSelectedEx]       = useState(null);
+  const [exMetric, setExMetric]           = useState('e1rm'); // 'e1rm' | 'max'
   const [bestProgress, setBestProgress]   = useState(null);
   const [streak, setStreak]               = useState(0);
   const [thisWeekCount, setThisWeekCount] = useState(0);
@@ -285,9 +286,9 @@ export default function ProgressScreen() {
 
     if (allEx.length > 0 && !selectedEx) {
       setSelectedEx(allEx[0]);
-      setExProgress(await getExerciseProgress(allEx[0]));
+      setExProgress(await getExerciseProgress(allEx[0], unit));
     } else if (selectedEx) {
-      setExProgress(await getExerciseProgress(selectedEx));
+      setExProgress(await getExerciseProgress(selectedEx, unit));
     }
     const todayW = weights.find(w => w.date === todayStr);
     if (todayW) setWeightInput(String(todayW.weight));
@@ -344,10 +345,13 @@ export default function ProgressScreen() {
     setAddModal(false); await refreshWeights();
   }
 
-  async function selectExercise(name) { setSelectedEx(name); setExProgress(await getExerciseProgress(name)); }
+  async function selectExercise(name) { setSelectedEx(name); setExProgress(await getExerciseProgress(name, bodyWeightUnit)); }
 
   const weekDelta       = thisWeekCount - lastWeekCount;
-  const exChartData     = exProgress.slice(-10).map(p => ({ value: p.maxWeight, label: p.date.slice(5) }));
+  const exChartData     = exProgress
+    .filter(p => exMetric === 'e1rm' ? p.e1rm > 0 : p.maxWeight > 0)
+    .slice(-10)
+    .map(p => ({ value: exMetric === 'e1rm' ? p.e1rm : p.maxWeight, label: p.date.slice(5) }));
   const weightChartData = [...bodyWeights].slice(-14).map(w => ({ value: w.weight, label: w.date.slice(5) }));
   const weightHistory   = [...bodyWeights].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -417,7 +421,16 @@ export default function ProgressScreen() {
               {exChartData.length >= 2
                 ? <LineChart data={exChartData} lineColor={colors.purple} dotColor={colors.bgCard} labelColor={colors.gray} height={140} />
                 : <Text style={s.emptyChartTxt}>Necesitás al menos 2 sesiones con {selectedEx} para ver la línea</Text>}
-              {exChartData.length > 0 && <Text style={s.chartUnit}>peso máximo por sesión (kg)</Text>}
+              {exChartData.length > 0 && (
+                <View style={s.metricRow}>
+                  {[['e1rm','1RM estimado'],['max','Peso máximo']].map(([key,label])=>(
+                    <TouchableOpacity key={key} style={[s.exChip, exMetric===key && s.exChipActive]} onPress={()=>setExMetric(key)}>
+                      <Text style={[s.exChipTxt, exMetric===key && s.exChipTxtActive]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {exChartData.length > 0 && <Text style={s.chartUnit}>{exMetric==='e1rm' ? `1RM estimado por sesión (${bodyWeightUnit})` : 'peso máximo por sesión'}</Text>}
             </>
           )}
         </View>
@@ -643,6 +656,7 @@ function createStyles(colors) {
     weightInputRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
     weightInput:      { backgroundColor: colors.bgInput, borderRadius: RADIUS.md, padding: 12, fontSize: 20, color: colors.white, fontWeight: '700', width: 90, textAlign: 'center', borderWidth: 1, borderColor: colors.purpleDim },
     weightUnit:       { fontSize: 15, color: colors.gray, fontWeight: '600' },
+    metricRow:        { flexDirection: 'row', gap: 8, marginTop: 10, justifyContent: 'center' },
     weightBtn:        { flex: 1, backgroundColor: colors.purple, borderRadius: RADIUS.full, paddingVertical: 13, alignItems: 'center' },
     weightBtnTxt:     { color: '#fff', fontWeight: '700', fontSize: 14 },
     inlineIconRow:    { flexDirection:'row', alignItems:'center', gap:5 },

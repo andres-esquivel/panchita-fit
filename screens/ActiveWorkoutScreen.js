@@ -11,9 +11,19 @@ import { getLogs, saveLog, saveLogDraft, clearActiveSessionDraft, getWeightUnit,
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
 import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
+import {
+  num, parseRir, toKg, fromKg, formatWeight, exerciseIdFromName,
+  fitExerciseModel, exercisePointsFromLogs, suggestSet, warmupWeights,
+} from '../strength/engine';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const KG_TO_LB = 2.20462;
+const RIR_OPTIONS = [0, 1, 2, 3, 4];
+const MAX_REST_SEC = 30 * 60;
+
+function exIdOf(ex) {
+  return ex?.exerciseId || exerciseIdFromName(ex?.name || '');
+}
 
 function formatShareCodePreview(code) {
   const clean = String(code || '').trim();
@@ -76,7 +86,7 @@ function logSignature(log) {
     date: log.date, workoutId: log.workoutId, completed: !!log.completed,
     exercises: (log.exercises||[]).map(ex=>({
       name: ex.name,
-      sets: (ex.sets||[]).map(st=>({ reps:String(st.reps||''), weight:String(st.weight||''), done:!!st.done })),
+      sets: (ex.sets||[]).map(st=>({ reps:String(st.reps||''), weight:String(st.weight||''), done:!!st.done, rir:st.rir??null, restSec:st.restSec??null })),
     })),
   });
 }
@@ -120,6 +130,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
 
   const [log, setLog]             = useState(null);
   const [lastLog, setLastLog]     = useState(null);
+  const [historyLogs, setHistoryLogs] = useState([]); // logs completados previos, para el motor de fuerza
   const [saving, setSaving]       = useState(false);
   const [autoSaveState, setAutoSaveState] = useState('idle');
   const [completed, setCompleted] = useState(false);
@@ -311,11 +322,12 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
       workoutName: workout.name || workout.day,
       backfilled: !!isBackfill,
       completed: false,
-      exercises: exerciseNames.map(name=>({ name, unit: weightUnit, sets:[{ reps:'', weight:'' }] })),
+      exercises: exerciseNames.map(name=>({ name, exerciseId: exerciseIdFromName(name), unit: weightUnit, sets:[{ reps:'', weight:'' }] })),
     };
     setLog(blankLog);
     setCompleted(false);
     setLastLog(null);
+    setHistoryLogs([]);
     lastSavedLogRef.current = '';
     lastDraftLogRef.current = '';
     setAutoSaveState('idle');
@@ -326,6 +338,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         .filter(l=>l.workoutId===workout.id && l.completed && l.date < targetDate)
         .sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
       setLastLog(last);
+      setHistoryLogs(logs.filter(l=>l.completed && l.date < targetDate));
 
       const existingLog = logs.find(l=>l.date===targetDate && l.workoutId===workout.id);
       if (existingLog) {
@@ -354,7 +367,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         const recurringLog = {
           ...blankLog,
           exercises: blankLog.exercises.map(ex=>{
-            const lastEx = last.exercises?.find(e=>e.name===ex.name);
+            const lastEx = last.exercises?.find(e=>exIdOf(e)===exIdOf(ex));
             if (!lastEx) return ex;
             return {
               ...ex,
@@ -407,7 +420,22 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         ...prev,
         exercises: prev.exercises.map((ex,ei)=>ei!==exIdx?ex:{
           ...ex,
-          sets: ex.sets.map((st,si)=>si!==setIdx?st:{ ...st,done:!wasDone }),
+          sets: ex.sets.map((st,si)=>{
+            if (si!==setIdx) return st;
+            if (wasDone) {
+              const { completedAt, restSec, ...rest } = st;
+              return { ...rest, done:false };
+            }
+            // Descanso real = tiempo desde la serie anterior del mismo ejercicio.
+            const now = new Date();
+            const prevDone = ex.sets.slice(0, si).reverse().find(p=>p.done && p.completedAt);
+            const next = { ...st, done:true, completedAt: now.toISOString() };
+            if (prevDone) {
+              const sec = Math.round((now - new Date(prevDone.completedAt)) / 1000);
+              if (sec >= 0 && sec <= MAX_REST_SEC) next.restSec = sec;
+            }
+            return next;
+          }),
         }),
       };
       if (!wasDone) {
@@ -430,6 +458,36 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
       }
       return { ...prev, exercises: prev.exercises.map((e,ei)=>ei!==exIdx?e:{ ...e, sets:[{ reps:'', weight:'', done:false }] }) };
     });
+  },[]);
+
+  // RIR se puede marcar antes o después de completar la serie (no la desmarca).
+  const setRir = useCallback((exIdx, setIdx, value)=>{
+    setLog(prev=>({
+      ...prev,
+      exercises: prev.exercises.map((ex,ei)=>ei!==exIdx?ex:{
+        ...ex,
+        sets: ex.sets.map((st,si)=>{
+          if (si!==setIdx) return st;
+          if (st.rir===value) { const { rir, ...rest } = st; return rest; }
+          return { ...st, rir:value };
+        }),
+      }),
+    }));
+  },[]);
+
+  const applySuggestion = useCallback((exIdx, setIdx, sug)=>{
+    setLog(prev=>({
+      ...prev,
+      exercises: prev.exercises.map((ex,ei)=>ei!==exIdx?ex:{
+        ...ex,
+        sets: ex.sets.map((st,si)=>si!==setIdx?st:{
+          ...st,
+          weight: sug.weight,
+          reps: String(st.reps||'').trim() ? st.reps : String(sug.reps),
+          done:false,
+        }),
+      }),
+    }));
   },[]);
 
   const removeExercise = useCallback((exIdx)=>{
@@ -465,7 +523,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   function addExerciseToSession(name) {
     const trimmed = (name||'').trim();
     if (!trimmed||!log) return;
-    setLog(prev=>({ ...prev, exercises:[...prev.exercises,{ name:trimmed, unit:weightUnit, sets:[{ reps:'', weight:'' }] }] }));
+    setLog(prev=>({ ...prev, exercises:[...prev.exercises,{ name:trimmed, exerciseId: exerciseIdFromName(trimmed), unit:weightUnit, sets:[{ reps:'', weight:'' }] }] }));
     setShowAddExModal(false);
     setAddExSearch('');
   }
@@ -524,6 +582,58 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   function getLastValue(exName, setIdx, field) {
     if (!lastLog) return null;
     return lastLog.exercises?.find(e=>e.name===exName)?.sets?.[setIdx]?.[field] || null;
+  }
+
+  // ─── Motor de fuerza: modelos y sugerencias ─────────────
+  const exerciseIdsKey = (log?.exercises||[]).map(exIdOf).join('|');
+  const strengthModels = useMemo(()=>{
+    const map = {};
+    for (const id of exerciseIdsKey.split('|')) {
+      if (!id || map[id] !== undefined) continue;
+      map[id] = fitExerciseModel(exercisePointsFromLogs(historyLogs, id));
+    }
+    return map;
+  },[historyLogs, exerciseIdsKey]);
+
+  function getLastExercise(ex) {
+    if (!lastLog) return null;
+    const id = exIdOf(ex);
+    return lastLog.exercises?.find(e=>exIdOf(e)===id) || null;
+  }
+
+  // Sugerencia para una serie: { weight (texto en la unidad del ejercicio), reps, rir, source }
+  function getSetSuggestion(ex, setIdx) {
+    const unit = ex.unit || weightUnit;
+    const st = ex.sets?.[setIdx];
+    if (!st) return null;
+    const prev = setIdx > 0 ? ex.sets[setIdx-1] : null;
+    const prevReps = num(prev?.reps), prevW = toKg(prev?.weight, unit);
+    const prevSetToday = prev?.done && prevReps > 0 && prevW > 0
+      ? { weightKg: prevW, reps: prevReps, rir: parseRir(prev.rir) }
+      : null;
+    const lastEx = getLastExercise(ex);
+    const lastSets = (lastEx?.sets||[]).filter(x=>num(x.reps)>0 && num(x.weight)>0);
+    const lastSet = lastEx?.sets?.[setIdx] && num(lastEx.sets[setIdx].reps) > 0 ? lastEx.sets[setIdx] : lastSets[lastSets.length-1];
+    const target = {
+      reps: num(st.reps) || num(lastSet?.reps),
+      rir: parseRir(st.rir) ?? parseRir(lastSet?.rir),
+    };
+    const sug = suggestSet({
+      model: strengthModels[exIdOf(ex)],
+      prevSetToday,
+      target,
+      restSec: restTimerSeconds > 0 ? restTimerSeconds : 120,
+    });
+    if (!sug || !(sug.weightKg > 0)) return null;
+    return { weight: formatWeight(fromKg(sug.weightKg, unit), unit), reps: sug.reps, rir: sug.rir, source: sug.source, unit };
+  }
+
+  function getWarmup(ex) {
+    if (completed || (ex.sets||[]).some(st=>st.done)) return [];
+    const unit = ex.unit || weightUnit;
+    const typed = num(ex.sets?.[0]?.weight);
+    const working = typed > 0 ? typed : num(getSetSuggestion(ex, 0)?.weight);
+    return warmupWeights(working, unit);
   }
 
   // ─── Back con prompt de guardado ─────────────────────────
@@ -833,8 +943,21 @@ ${shareCode}` });
               </TouchableOpacity>
             </View>
 
+            {(()=>{
+              const warm = getWarmup(ex);
+              if (!warm.length) return null;
+              return (
+                <Text style={s.warmupTxt}>
+                  Calentamiento: {warm.join(' · ')} {ex.unit||weightUnit}
+                </Text>
+              );
+            })()}
+
             {/* Sets */}
             {(ex.sets||[]).map((st, setIdx)=>{
+              const sug        = !st.done && !completed ? getSetSuggestion(ex, setIdx) : null;
+              const showSug    = sug && sug.weight && sug.weight !== String(st.weight||'').trim();
+              const rirValue   = parseRir(st.rir);
               const prevReps   = getLastValue(ex.name, setIdx, 'reps');
               const prevWeight = getLastValue(ex.name, setIdx, 'weight');
               const isDone     = !!st.done;
@@ -878,6 +1001,28 @@ ${shareCode}` });
                       {!isDone&&<Text style={s.setAntLabel}>ant: {prevWeight?`${prevWeight}${getLastExUnit(ex.name)||ex.unit||weightUnit}`:'—'}</Text>}
                     </View>
                   </View>
+                  <View style={s.rirRow}>
+                    <Text style={s.rirLabel}>RIR</Text>
+                    {RIR_OPTIONS.map(v=>(
+                      <TouchableOpacity
+                        key={v}
+                        style={[s.rirChip, rirValue===v && s.rirChipActive]}
+                        onPress={()=>setRir(exIdx,setIdx,v)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.rirChipTxt, rirValue===v && s.rirChipTxtActive]}>{v===4?'4+':v}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {showSug && (
+                    <TouchableOpacity style={s.sugRow} onPress={()=>applySuggestion(exIdx,setIdx,sug)} activeOpacity={0.7}>
+                      <Text style={s.sugTxt}>
+                        Sugerido: <Text style={s.sugStrong}>{sug.weight} {sug.unit}</Text> × {sug.reps} @ RIR {sug.rir}
+                        {sug.source==='fatigue' ? '  · ajustado por fatiga' : ''}
+                      </Text>
+                      <Text style={s.sugApply}>Usar</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               );
             })}
@@ -1017,6 +1162,17 @@ function createStyles(colors) {
     setInput: { height:52, backgroundColor:colors.bg, borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim, fontSize:22, fontWeight:'700', color:colors.white, textAlign:'center' },
     setInputDone: { opacity:0.35, borderColor:'transparent' },
     setAntLabel: { fontSize:11, color:'#666', marginTop:4, textAlign:'center' },
+    rirRow: { flexDirection:'row', alignItems:'center', gap:6, marginTop:10 },
+    rirLabel: { fontSize:10, fontWeight:'700', color:colors.gray, letterSpacing:1, marginRight:2 },
+    rirChip: { flex:1, minHeight:36, borderRadius:RADIUS.sm, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center', backgroundColor:colors.bg },
+    rirChipActive: { backgroundColor:colors.purple, borderColor:colors.purple },
+    rirChipTxt: { fontSize:13, fontWeight:'700', color:colors.grayLight },
+    rirChipTxtActive: { color:'#fff' },
+    sugRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:10, paddingVertical:8, paddingHorizontal:10, borderRadius:RADIUS.sm, backgroundColor:colors.purpleDim },
+    sugTxt: { flex:1, fontSize:12, color:colors.grayLight },
+    sugStrong: { fontWeight:'800', color:colors.white },
+    sugApply: { fontSize:12, fontWeight:'800', color:colors.purpleLight, marginLeft:8 },
+    warmupTxt: { fontSize:12, color:colors.gray, marginBottom:10 },
 
     // Actions
     addExToSessionBtn: { borderWidth:1.5, borderColor:colors.purpleDim, borderRadius:RADIUS.full, paddingVertical:13, alignItems:'center', marginBottom:12, minHeight:48, justifyContent:'center', borderStyle:'dashed' },
