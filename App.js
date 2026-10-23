@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
-import HomeScreen     from './screens/HomeScreen';
+import DashboardScreen from './screens/DashboardScreen';
 import WorkoutScreen  from './screens/WorkoutScreen';
 import CoachScreen    from './screens/CoachScreen';
-import ProgressScreen from './screens/ProgressScreen';
-import SettingsScreen from './screens/SettingsScreen';
+import MoreScreen     from './screens/MoreScreen';
 import OnboardScreen  from './screens/OnboardScreen';
 import LoginScreen    from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
@@ -18,11 +17,11 @@ import WeeklyReviewModal from './screens/WeeklyReviewModal';
 import InstallPromptBanner from './components/InstallPromptBanner';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { isOnboarded, shouldShowWeeklyReview, markWeeklyReviewSeen } from './storage';
-import { IconHome, IconDumbbell, IconPaw, IconChart, IconSettings } from './components/icons';
+import { IconHome, IconDumbbell, IconPaw, IconMenuDots } from './components/icons';
 
 const Tab = createBottomTabNavigator();
 
-function AppNavigator() {
+export function AppNavigator() {
   const { colors, isDark } = useTheme();
   return (
     <NavigationContainer>
@@ -31,23 +30,25 @@ function AppNavigator() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
-            backgroundColor: colors.bgCard,
+            backgroundColor: colors.bg,
             borderTopColor:  colors.purpleDim,
-            borderTopWidth:  1,
-            height:  70,
+            borderTopWidth:  StyleSheet.hairlineWidth,
+            height:  68,
             paddingBottom: 12,
             paddingTop:    8,
+            elevation: 0,
           },
           tabBarActiveTintColor:   colors.purpleLight,
           tabBarInactiveTintColor: colors.gray,
           tabBarHideOnKeyboard: true,
-          tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginTop: 2 },
         }}
       >
         <Tab.Screen
           name='Inicio'
-          component={HomeScreen}
+          component={DashboardScreen}
           options={{
+            tabBarLabel: 'Dashboard',
             tabBarIcon: ({ focused, color }) => (
               <View style={[tabIconStyle(), focused && tabIconActiveStyle(colors)]}>
                 <IconHome size={20} color={color} />
@@ -71,6 +72,7 @@ function AppNavigator() {
           name='Coach'
           component={CoachScreen}
           options={{
+            tabBarLabel: 'Panchita',
             tabBarIcon: ({ focused, color }) => (
               <View style={[tabIconStyle(), focused && tabIconActiveStyle(colors)]}>
                 <IconPaw size={20} color={color} />
@@ -79,23 +81,13 @@ function AppNavigator() {
           }}
         />
         <Tab.Screen
-          name='Progreso'
-          component={ProgressScreen}
+          name='Mas'
+          component={MoreScreen}
           options={{
+            tabBarLabel: 'Más',
             tabBarIcon: ({ focused, color }) => (
               <View style={[tabIconStyle(), focused && tabIconActiveStyle(colors)]}>
-                <IconChart size={18} color={color} />
-              </View>
-            ),
-          }}
-        />
-        <Tab.Screen
-          name='Ajustes'
-          component={SettingsScreen}
-          options={{
-            tabBarIcon: ({ focused, color }) => (
-              <View style={[tabIconStyle(), focused && tabIconActiveStyle(colors)]}>
-                <IconSettings size={20} color={color} />
+                <IconMenuDots size={20} color={color} />
               </View>
             ),
           }}
