@@ -4,6 +4,7 @@ import {
   query, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { exerciseIdFromName, parseRir, e1rmSeries } from '../strength/engine';
 
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -91,15 +92,25 @@ function normalizeLogForStorage(log) {
   const id = log?.id || `${date}_${workoutId}`;
   // Defensive normalization: ensure exercises/sets are always arrays with proper field types.
   // Prevents undefined/null from reaching Firestore if state is ever incomplete.
+  // Campos del motor de fuerza (rir, restSec, completedAt) se conservan solo si existen,
+  // así los logs viejos quedan idénticos y Firestore nunca recibe undefined.
   const exercises = (log?.exercises || []).map(ex => ({
     ...ex,
     name: ex?.name || '',
+    exerciseId: ex?.exerciseId || exerciseIdFromName(ex?.name || ''),
     unit: ex?.unit || 'kg',
-    sets: (ex?.sets || []).map(st => ({
-      reps:   String(st?.reps   ?? ''),
-      weight: String(st?.weight ?? ''),
-      done:   !!st?.done,
-    })),
+    sets: (ex?.sets || []).map(st => {
+      const set = {
+        reps:   String(st?.reps   ?? ''),
+        weight: String(st?.weight ?? ''),
+        done:   !!st?.done,
+      };
+      const rir = parseRir(st?.rir);
+      if (rir !== null) set.rir = rir;
+      if (Number.isFinite(st?.restSec) && st.restSec >= 0) set.restSec = Math.round(st.restSec);
+      if (typeof st?.completedAt === 'string' && st.completedAt) set.completedAt = st.completedAt;
+      return set;
+    }),
   }));
   return { ...log, id, date, workoutId, exercises, updatedAt: new Date().toISOString() };
 }
@@ -604,18 +615,21 @@ export async function getWeeklyFrequency(numWeeks = 8) {
   return result;
 }
 
-export async function getExerciseProgress(exerciseName) {
+export async function getExerciseProgress(exerciseName, unit = 'kg') {
   const logs = await getLogs();
+  const targetId = exerciseIdFromName(exerciseName);
   const byDate = {};
   for (const log of logs) {
     if (!log.completed) continue;
-    const ex = log.exercises?.find(e => e.name.toLowerCase() === exerciseName.toLowerCase());
+    const ex = log.exercises?.find(e => (e.exerciseId || exerciseIdFromName(e.name)) === targetId);
     if (!ex) continue;
-    const maxW = Math.max(...ex.sets.map(s => parseFloat(s.weight) || 0));
+    const maxW = Math.max(...(ex.sets || []).map(s => parseFloat(s.weight) || 0));
     if (maxW > 0 && (!byDate[log.date] || byDate[log.date] < maxW)) byDate[log.date] = maxW;
   }
+  // 1RM estimado (motor de fuerza): normaliza reps y RIR, así 8×100 y 12×90 son comparables.
+  const e1rmByDate = Object.fromEntries(e1rmSeries(logs, targetId, unit).map(p => [p.date, p.e1rm]));
   return Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, maxWeight]) => ({ date, maxWeight }));
+    .map(([date, maxWeight]) => ({ date, maxWeight, e1rm: e1rmByDate[date] ?? null }));
 }
 
 export async function getAllTrackedExercises() {
