@@ -1,0 +1,388 @@
+// exercises/library.js — Guías de ejercicios de PanchitaFit (contenido propio).
+// Cada guía: músculos, patrón, equipo, preparación, ejecución, errores, sustituto y consejo de Panchita.
+// `aliases` permite encontrar la guía aunque la rutina use otro nombre (español/inglés).
+
+export const MUSCLES = {
+  pecho: 'Pecho', pechoSup: 'Pecho superior', espaldaAlta: 'Espalda alta', dorsal: 'Dorsal ancho',
+  trapecio: 'Trapecio', deltAnt: 'Deltoide anterior', deltLat: 'Deltoide lateral', deltPost: 'Deltoide posterior',
+  biceps: 'Bíceps', braquial: 'Braquial', braquiorradial: 'Braquiorradial', triceps: 'Tríceps',
+  antebrazo: 'Antebrazo', flexoresMuneca: 'Flexores de muñeca', extensoresMuneca: 'Extensores de muñeca',
+  abdomen: 'Abdomen', cuadriceps: 'Cuádriceps', gluteo: 'Glúteo mayor', gluteoMedio: 'Glúteo medio',
+  isquios: 'Isquiotibiales', aductores: 'Aductores', gemelos: 'Gemelos', soleo: 'Sóleo', lumbar: 'Erectores',
+};
+
+export const EXERCISES = [
+  // ─── Upper 1 ───────────────────────────────────────────
+  {
+    id: 'barbell-incline-press', name: 'Press inclinado con barra',
+    aliases: ['Barbell Incline Press', 'Press inclinado', 'Incline Bench Press', 'Press banca inclinado'],
+    primary: ['pechoSup'], secondary: ['deltAnt', 'triceps'], pattern: 'Empuje inclinado', equipment: 'Barra y banco inclinado',
+    setup: ['Banco a 30–45°. Más inclinado = más hombro, menos pecho.', 'Escápulas juntas y hacia abajo, pies firmes, ligero arco en la espalda alta.'],
+    steps: ['Agarre un poco más ancho que los hombros; sacá la barra con los brazos rectos.', 'Bajá controlado hasta tocar la parte alta del pecho, codos a ~60° del torso.', 'Empujá hacia arriba y un poco hacia atrás, sin despegar los hombros del banco.'],
+    mistakes: ['Rebotar la barra en el pecho.', 'Codos abiertos a 90°: carga los hombros y no el pecho.'],
+    swap: 'Press inclinado con mancuernas o en máquina Smith.',
+    tip: 'Si los hombros hacen todo el trabajo, bajá la inclinación. No es negociable.',
+  },
+  {
+    id: 'pec-deck', name: 'Pec deck',
+    aliases: ['Pec Deck', 'Peck deck', 'Aperturas en máquina', 'Machine Fly', 'Contractor de pecho'],
+    primary: ['pecho'], secondary: ['deltAnt'], pattern: 'Aducción horizontal', equipment: 'Máquina',
+    setup: ['Asiento a una altura donde las manijas queden a la altura del pecho medio.', 'Espalda pegada al respaldo, pecho arriba.'],
+    steps: ['Codos ligeramente flexionados y fijos durante todo el recorrido.', 'Juntá las manijas frente al pecho apretando el pecho, no los brazos.', 'Volvé lento hasta sentir estiramiento, sin que los hombros se adelanten.'],
+    mistakes: ['Convertirlo en un press doblando los codos.', 'Abrir de más y perder la tensión en el hombro.'],
+    swap: 'Aperturas en polea o con mancuernas.',
+    tip: 'La parte buena es el estiramiento. Bajá lento, que no te persigue nadie.',
+  },
+  {
+    id: 'incline-db-y-raise', name: 'Elevación Y en banco inclinado',
+    aliases: ['Incline DB Y-Raise', 'Y Raise', 'Y-Raise', 'Elevación en Y'],
+    primary: ['deltLat', 'trapecio'], secondary: ['deltPost'], pattern: 'Elevación de hombro', equipment: 'Mancuernas y banco inclinado',
+    setup: ['Banco a 30–45°, acostado boca abajo con el pecho apoyado.', 'Mancuernas ligeras, pulgares hacia arriba.'],
+    steps: ['Desde los brazos colgando, subí en diagonal formando una "Y".', 'Pará cuando los brazos estén alineados con el torso.', 'Bajá controlado sin soltar la tensión.'],
+    mistakes: ['Usar demasiado peso y encoger los hombros.', 'Despegar el pecho del banco para impulsarte.'],
+    swap: 'Elevación Y en polea baja.',
+    tip: 'Esto se hace con poco peso. Si te da vergüenza, es que lo estás haciendo bien.',
+  },
+  {
+    id: 'pull-up-wide-grip', name: 'Dominadas agarre ancho',
+    aliases: ['Pull-Up Wide Grip', 'Pull-Up', 'Dominadas', 'Wide Grip Pull-Up'],
+    primary: ['dorsal'], secondary: ['espaldaAlta', 'biceps'], pattern: 'Tirón vertical', equipment: 'Barra de dominadas',
+    setup: ['Agarre 1.5 veces el ancho de hombros, palmas al frente.', 'Colgado con brazos rectos y hombros activos (no sueltos).'],
+    steps: ['Iniciá llevando las escápulas hacia abajo.', 'Tirá con los codos hacia las costillas hasta pasar la barbilla de la barra.', 'Bajá hasta estirar casi por completo los brazos.'],
+    mistakes: ['Medias repeticiones sin estirar abajo.', 'Balancearse para subir.'],
+    swap: 'Jalón al pecho con agarre ancho o dominadas asistidas.',
+    tip: 'Si no llegás arriba, la gravedad ganó esta vez. Usá asistencia y volvé por la revancha.',
+  },
+  {
+    id: 'kelso-shrug', name: 'Kelso shrug',
+    aliases: ['Kelso Shrug', 'Encogimiento Kelso'],
+    primary: ['espaldaAlta', 'trapecio'], secondary: [], pattern: 'Retracción escapular', equipment: 'Máquina de remo con pecho apoyado o mancuernas',
+    setup: ['Pecho apoyado en un banco inclinado o máquina de remo.', 'Brazos colgando rectos.'],
+    steps: ['Sin doblar los codos, juntá las escápulas hacia atrás.', 'Sostené 1 segundo apretando la parte media de la espalda.', 'Soltá lento dejando que las escápulas se separen.'],
+    mistakes: ['Doblar los codos y convertirlo en remo.', 'Encoger hacia las orejas en lugar de hacia atrás.'],
+    swap: 'Retracciones escapulares en polea.',
+    tip: 'Los brazos son ganchos. Si se doblan, ya no es Kelso, es otra cosa.',
+  },
+  {
+    id: 'ez-bar-preacher-curl', name: 'Curl predicador con barra Z',
+    aliases: ['EZ-Bar Preacher Curl', 'Preacher Curl', 'Curl predicador', 'Curl Scott'],
+    primary: ['biceps'], secondary: ['braquial'], pattern: 'Flexión de codo', equipment: 'Barra Z y banco predicador',
+    setup: ['Axilas pegadas al borde del banco, brazos apoyados.', 'Agarre en la parte angulada de la barra Z.'],
+    steps: ['Desde casi extendido, subí la barra sin despegar los brazos del banco.', 'Apretá arriba sin dejar que los codos se levanten.', 'Bajá lento hasta casi estirar el brazo.'],
+    mistakes: ['Quedarse en la mitad de arriba.', 'Dejar caer la barra en la bajada.'],
+    swap: 'Curl predicador en máquina o con mancuerna a una mano.',
+    tip: 'La bajada es donde está la magia. Y donde duele. Coincidencia, no.',
+  },
+  {
+    id: 'triceps-pressdown', name: 'Extensión de tríceps en polea',
+    aliases: ['Triceps Pressdown', 'Pushdown', 'Tricep Pushdown', 'Jalón de tríceps', 'Extensión cable'],
+    primary: ['triceps'], secondary: [], pattern: 'Extensión de codo', equipment: 'Polea alta con barra o cuerda',
+    setup: ['Polea alta, de pie cerca de la máquina.', 'Codos pegados a los costados, torso un poco inclinado.'],
+    steps: ['Empujá hacia abajo hasta extender por completo los codos.', 'Pausa breve abajo apretando el tríceps.', 'Subí hasta que los antebrazos pasen la horizontal.'],
+    mistakes: ['Mover los codos hacia adelante y atrás.', 'Echar el cuerpo encima para bajar el peso.'],
+    swap: 'Extensión con cuerda o fondos en máquina.',
+    tip: 'Codos quietos. Si se mueven, el peso es tu ego, no tu tríceps.',
+  },
+  {
+    id: 'dragon-flag', name: 'Dragon flag',
+    aliases: ['Dragon Flag'],
+    primary: ['abdomen'], secondary: ['lumbar'], pattern: 'Anti-extensión de core', equipment: 'Banco',
+    setup: ['Acostado en un banco, agarrado del borde detrás de la cabeza.', 'Cuerpo en línea recta desde los hombros.'],
+    steps: ['Subí el cuerpo recto hasta quedar casi vertical apoyado en los hombros.', 'Bajá lento manteniendo el cuerpo rígido.', 'Pará antes de tocar el banco y repetí.'],
+    mistakes: ['Doblar la cadera para facilitar.', 'Arquear la zona lumbar.'],
+    swap: 'Dragon flag con rodillas dobladas, elevación de piernas o crunch en polea.',
+    tip: 'Si todavía no te sale, hacé solo la bajada. Todo el mundo empezó por algo.',
+  },
+  // ─── Pierna cuádriceps ─────────────────────────────────
+  {
+    id: 'bulgarian-split-squat', name: 'Sentadilla búlgara',
+    aliases: ['Bulgarian Split Squat', 'Búlgara', 'Sentadilla bulgara', 'Split squat'],
+    primary: ['cuadriceps', 'gluteo'], secondary: ['aductores'], pattern: 'Sentadilla unilateral', equipment: 'Mancuernas y banco',
+    setup: ['Pie de atrás apoyado en un banco, pie de adelante a un paso largo.', 'Mancuernas a los lados, torso erguido o un poco inclinado.'],
+    steps: ['Bajá doblando la rodilla de adelante hasta que el muslo quede casi paralelo.', 'La rodilla puede pasar la punta del pie; el talón queda pegado al piso.', 'Empujá con el pie de adelante para subir.'],
+    mistakes: ['Pie de adelante muy cerca del banco.', 'Empujar con la pierna de atrás.'],
+    swap: 'Zancada inversa o split squat en Smith.',
+    tip: 'Nadie disfruta la búlgara. Por eso funciona.',
+  },
+  {
+    id: 'leg-press', name: 'Prensa',
+    aliases: ['Prensa', 'Leg Press', 'Prensa de piernas', 'Prensa 45'],
+    primary: ['cuadriceps'], secondary: ['gluteo', 'aductores'], pattern: 'Sentadilla en máquina', equipment: 'Prensa',
+    setup: ['Espalda y cadera bien pegadas al respaldo.', 'Pies al ancho de hombros en la mitad de la plataforma.'],
+    steps: ['Quitá los seguros y bajá doblando rodillas hacia el pecho.', 'Bajá todo lo posible sin que la cadera se despegue del asiento.', 'Empujá sin bloquear las rodillas de golpe arriba.'],
+    mistakes: ['Despegar la cadera abajo (la lumbar se redondea).', 'Recorridos cortos con mucho peso.'],
+    swap: 'Sentadilla hack o sentadilla en Smith.',
+    tip: 'Cargar toda la máquina y bajar 5 cm no es entrenar, es decorar.',
+  },
+  {
+    id: 'leg-extension', name: 'Extensión de cuádriceps',
+    aliases: ['Leg Extension', 'Extensión de cuádriceps', 'Extensión cuád', 'Extensiones'],
+    primary: ['cuadriceps'], secondary: [], pattern: 'Extensión de rodilla', equipment: 'Máquina',
+    setup: ['Rodilla alineada con el eje de la máquina.', 'Rodillo apoyado justo arriba del tobillo.'],
+    steps: ['Extendé las rodillas hasta arriba y apretá un segundo.', 'Bajá lento hasta casi 90°.', 'Agarrate de las manijas para no levantar la cadera.'],
+    mistakes: ['Patear el peso con impulso.', 'Despegar la cadera del asiento.'],
+    swap: 'Sissy squat o extensión unilateral.',
+    tip: 'Si quema, vas bien. Si truena, ajustá el asiento.',
+  },
+  {
+    id: 'leg-curl', name: 'Curl femoral',
+    aliases: ['Curl femoral', 'Leg Curl', 'Seated Leg Curl', 'Lying Leg Curl', 'Curl de isquios'],
+    primary: ['isquios'], secondary: ['gemelos'], pattern: 'Flexión de rodilla', equipment: 'Máquina',
+    setup: ['Sentado: inclinate un poco hacia adelante para estirar más los isquios.', 'Rodilla alineada con el eje, rodillo arriba del talón.'],
+    steps: ['Doblá las rodillas lo más posible, apretando atrás del muslo.', 'Pausa corta en la contracción.', 'Volvé lento hasta estirar casi por completo.'],
+    mistakes: ['Levantar la cadera del asiento.', 'Soltar el peso en la vuelta.'],
+    swap: 'Curl nórdico o curl con fitball.',
+    tip: 'Sentado estira más el isquio. Más estiramiento, más ganancia. Y más quejas.',
+  },
+  {
+    id: 'glute-ham-raise', name: 'Glute ham raise',
+    aliases: ['Glute Ham Raise', 'GHR'],
+    primary: ['isquios'], secondary: ['gluteo', 'gemelos'], pattern: 'Flexión de rodilla con cadera extendida', equipment: 'Banco GHR',
+    setup: ['Rodillas justo detrás del cojín, pies trabados.', 'Cuerpo recto de rodillas a cabeza.'],
+    steps: ['Bajá el torso hacia adelante manteniendo la cadera extendida.', 'Subí tirando con los isquios hasta quedar vertical.', 'Usá las manos para ayudarte si hace falta.'],
+    mistakes: ['Doblar la cadera para subir.', 'Dejarse caer sin control.'],
+    swap: 'Curl femoral o curl nórdico asistido.',
+    tip: 'Si subís con la espalda, no cuenta. Panchita lo vio.',
+  },
+  {
+    id: 'calf-raise', name: 'Elevación de pantorrilla',
+    aliases: ['Pantorrilla', 'Calf Raise', 'Standing Calf Raise', 'Gemelos', 'Elevación de talones'],
+    primary: ['gemelos'], secondary: ['soleo'], pattern: 'Flexión plantar', equipment: 'Máquina o prensa',
+    setup: ['Punta de los pies en el borde, talones en el aire.', 'Rodillas rectas (más gemelo) o dobladas (más sóleo).'],
+    steps: ['Bajá los talones hasta el máximo estiramiento y pausá 1–2 segundos.', 'Subí lo más alto posible sobre la punta.', 'Sin rebotes.'],
+    mistakes: ['Rebotar abajo usando el tendón.', 'Recorrido corto.'],
+    swap: 'Pantorrilla en prensa o en Smith.',
+    tip: 'La pausa abajo es obligatoria. Las pantorrillas no crecen por rebotar.',
+  },
+  // ─── Upper 2 ───────────────────────────────────────────
+  {
+    id: 'close-grip-lat-pulldown', name: 'Jalón al pecho agarre cerrado',
+    aliases: ['Close-Grip Lat Pulldown', 'Jalón cerrado', 'Lat Pulldown', 'Jalón al pecho'],
+    primary: ['dorsal'], secondary: ['biceps', 'espaldaAlta'], pattern: 'Tirón vertical', equipment: 'Polea alta',
+    setup: ['Rodillas trabadas bajo el cojín.', 'Agarre cerrado o neutro, brazos estirados arriba.'],
+    steps: ['Inclinate un poco hacia atrás y tirá con los codos hacia las caderas.', 'Llevá la barra a la parte alta del pecho.', 'Subí lento hasta estirar los dorsales por completo.'],
+    mistakes: ['Tirar con los brazos en vez de con los codos.', 'Echarse muy atrás y convertirlo en remo.'],
+    swap: 'Dominadas agarre neutro o jalón unilateral.',
+    tip: 'Pensá en meter los codos en los bolsillos de atrás. Raro, pero funciona.',
+  },
+  {
+    id: 'chest-supported-t-bar-row', name: 'Remo T con pecho apoyado',
+    aliases: ['Chest-Supported T-Bar Row', 'T-Bar Row', 'Remo T', 'Remo en barra T'],
+    primary: ['espaldaAlta', 'dorsal'], secondary: ['deltPost', 'biceps'], pattern: 'Tirón horizontal', equipment: 'Máquina de remo T',
+    setup: ['Pecho bien apoyado en el cojín.', 'Agarre según el énfasis: ancho = espalda alta, cerrado = dorsal.'],
+    steps: ['Desde brazos estirados, tirá hasta que las manos lleguen al torso.', 'Juntá las escápulas arriba.', 'Bajá estirando por completo.'],
+    mistakes: ['Despegar el pecho del cojín para impulsar.', 'No estirar abajo.'],
+    swap: 'Remo con mancuernas en banco inclinado o remo en máquina.',
+    tip: 'Si te despegás del cojín, ya no es "pecho apoyado". Es "pecho de vacaciones".',
+  },
+  {
+    id: 'machine-shrug', name: 'Encogimiento en máquina',
+    aliases: ['Machine Shrug', 'Shrug', 'Encogimientos', 'Encogimiento de hombros'],
+    primary: ['trapecio'], secondary: [], pattern: 'Elevación escapular', equipment: 'Máquina o Smith',
+    setup: ['De pie, brazos rectos agarrando las manijas.', 'Pecho arriba, hombros relajados abajo.'],
+    steps: ['Subí los hombros hacia las orejas.', 'Pausá 1 segundo arriba.', 'Bajá hasta el estiramiento completo.'],
+    mistakes: ['Girar los hombros en círculo.', 'Doblar los codos.'],
+    swap: 'Encogimientos con mancuernas o barra.',
+    tip: 'Arriba y abajo. Los círculos no le hacen nada al trapecio más que gracia.',
+  },
+  {
+    id: 'machine-chest-press', name: 'Press de pecho en máquina',
+    aliases: ['Machine Chest Press', 'Chest Press', 'Press en máquina', 'Press banca máquina'],
+    primary: ['pecho'], secondary: ['deltAnt', 'triceps'], pattern: 'Empuje horizontal', equipment: 'Máquina',
+    setup: ['Asiento con las manijas a la altura del pecho medio.', 'Escápulas juntas, espalda pegada.'],
+    steps: ['Empujá hasta casi extender los brazos.', 'Volvé lento hasta sentir estiramiento en el pecho.', 'Mantené los hombros abajo y atrás.'],
+    mistakes: ['Hombros que se adelantan al final.', 'Recorrido corto atrás.'],
+    swap: 'Press banca con mancuernas o press en Smith.',
+    tip: 'La máquina te deja ir pesado sin miedo. Aprovechala, pero bajá completo.',
+  },
+  {
+    id: 'high-cable-lateral-raise', name: 'Elevación lateral en polea alta',
+    aliases: ['High-Cable Lateral Raise', 'Cable Lateral Raise', 'Elevación lateral en polea'],
+    primary: ['deltLat'], secondary: [], pattern: 'Abducción de hombro', equipment: 'Polea',
+    setup: ['Polea a la altura de la cadera o un poco más alta, cable cruzando por delante.', 'De lado a la máquina, agarrando con la mano más lejana.'],
+    steps: ['Subí el brazo hacia el lado hasta la altura del hombro.', 'Codo ligeramente doblado, guiando con el codo.', 'Bajá lento sin dejar que el peso descanse.'],
+    mistakes: ['Encoger el trapecio.', 'Balancear el torso.'],
+    swap: 'Elevación lateral con mancuernas o en máquina.',
+    tip: 'La polea no te deja descansar abajo. Por eso te gusta tan poco.',
+  },
+  {
+    id: 'one-arm-reverse-pec-deck', name: 'Reverse pec deck a una mano',
+    aliases: ['1-Arm Reverse Pec Deck', 'Reverse Pec Deck', 'Pájaro en máquina', 'Pájaro'],
+    primary: ['deltPost'], secondary: ['espaldaAlta'], pattern: 'Abducción horizontal', equipment: 'Máquina pec deck',
+    setup: ['Sentado de frente al respaldo, o de lado para hacerlo a una mano.', 'Manija a la altura del hombro.'],
+    steps: ['Llevá el brazo hacia atrás en un arco amplio.', 'Pará cuando el brazo quede alineado con el torso.', 'Volvé controlado cruzando un poco al frente.'],
+    mistakes: ['Juntar escápulas en vez de mover el brazo.', 'Usar impulso del torso.'],
+    swap: 'Pájaro en polea o con mancuernas.',
+    tip: 'Deltoide posterior: chiquito, terco y siempre olvidado. No seás como los demás.',
+  },
+  {
+    id: 'cable-crunch', name: 'Crunch en polea',
+    aliases: ['Cable Crunch', 'Crunch en polea', 'Encogimiento abdominal en polea'],
+    primary: ['abdomen'], secondary: [], pattern: 'Flexión de columna', equipment: 'Polea alta con cuerda',
+    setup: ['De rodillas frente a la polea, cuerda junto a la cabeza.', 'Cadera quieta, un poco por delante de las rodillas.'],
+    steps: ['Enrollá la columna llevando los codos hacia los muslos.', 'Apretá el abdomen abajo.', 'Volvé estirando sin que la cadera se mueva.'],
+    mistakes: ['Bajar con la cadera (sentarse en los talones).', 'Tirar con los brazos.'],
+    swap: 'Crunch en máquina o elevación de piernas colgado.',
+    tip: 'Es un enrollado, no una reverencia. La cadera se queda donde está.',
+  },
+  // ─── Pierna glúteo / isquios ───────────────────────────
+  {
+    id: 'hip-thrust', name: 'Hip thrust',
+    aliases: ['Hip Thrust', 'Empuje de cadera', 'Puente de glúteo con barra'],
+    primary: ['gluteo'], secondary: ['isquios'], pattern: 'Extensión de cadera', equipment: 'Barra y banco (o máquina)',
+    setup: ['Espalda alta apoyada en el banco, barra sobre la cadera con almohadilla.', 'Pies a lo ancho de cadera; arriba, las espinillas quedan verticales.'],
+    steps: ['Empujá con los talones subiendo la cadera hasta alinear tronco y muslos.', 'Barbilla un poco hacia el pecho, costillas abajo.', 'Pausá arriba y bajá controlado.'],
+    mistakes: ['Arquear la lumbar arriba en lugar de extender la cadera.', 'Pies muy lejos (se va a isquios).'],
+    swap: 'Hip thrust en máquina o puente de glúteo.',
+    tip: 'Arriba, apretá como si te debieran plata.',
+  },
+  {
+    id: 'romanian-deadlift', name: 'Peso muerto rumano',
+    aliases: ['Romanian Deadlift', 'RDL', 'Peso muerto rumano', 'Peso muerto piernas rígidas'],
+    primary: ['isquios', 'gluteo'], secondary: ['lumbar', 'antebrazo'], pattern: 'Bisagra de cadera', equipment: 'Barra o mancuernas',
+    setup: ['De pie con la barra en las manos, pies al ancho de cadera.', 'Rodillas un poco dobladas y fijas.'],
+    steps: ['Llevá la cadera hacia atrás bajando la barra pegada a las piernas.', 'Bajá hasta sentir el estiramiento fuerte en los isquios (más o menos a media espinilla).', 'Subí empujando la cadera hacia adelante.'],
+    mistakes: ['Redondear la espalda.', 'Doblar las rodillas y convertirlo en sentadilla.'],
+    swap: 'RDL con mancuernas o hiperextensión 45°.',
+    tip: 'Es una bisagra. La espalda es una tabla y la cadera, la puerta.',
+  },
+  {
+    id: 'hip-abduction', name: 'Abducción de cadera',
+    aliases: ['Abducción', 'Hip Abduction', 'Abductores', 'Máquina de abductores'],
+    primary: ['gluteoMedio'], secondary: ['gluteo'], pattern: 'Abducción de cadera', equipment: 'Máquina',
+    setup: ['Sentado, cojines por fuera de las rodillas.', 'Inclinarte un poco hacia adelante enfoca más el glúteo.'],
+    steps: ['Abrí las piernas lo más posible.', 'Pausá en la apertura.', 'Cerrá lento sin dejar que las placas choquen.'],
+    mistakes: ['Movimientos rápidos con rebote.', 'Recorrido corto.'],
+    swap: 'Abducción en polea o con banda.',
+    tip: 'Se ve fácil hasta la rep 12. Después, hablamos.',
+  },
+  {
+    id: 'leg-press-high-feet', name: 'Prensa con pies altos',
+    aliases: ['Prensa pies altos', 'High Foot Leg Press', 'Prensa glúteo'],
+    primary: ['gluteo', 'isquios'], secondary: ['cuadriceps'], pattern: 'Sentadilla en máquina', equipment: 'Prensa',
+    setup: ['Pies en la parte alta de la plataforma, un poco más abiertos.', 'Cadera bien pegada al asiento.'],
+    steps: ['Bajá llevando las rodillas hacia el pecho todo lo que permita la cadera.', 'Empujá con los talones.', 'No bloqueés las rodillas arriba.'],
+    mistakes: ['Despegar la cadera abajo.', 'Empujar con la punta del pie.'],
+    swap: 'Sentadilla búlgara inclinada o hip thrust.',
+    tip: 'Talones, talones, talones. Si empujás con la punta, es otro ejercicio.',
+  },
+  // ─── Brazos / hombro ───────────────────────────────────
+  {
+    id: 'bayesian-cable-curl', name: 'Curl bayesiano en polea',
+    aliases: ['Bayesian Cable Curl', 'Bayesian Curl', 'Curl bayesiano'],
+    primary: ['biceps'], secondary: ['braquial'], pattern: 'Flexión de codo (hombro extendido)', equipment: 'Polea baja',
+    setup: ['De espaldas a la polea baja, un paso adelante.', 'Brazo un poco por detrás del cuerpo, con el bíceps estirado.'],
+    steps: ['Doblá el codo sin mover el hombro hacia adelante.', 'Apretá arriba.', 'Bajá lento hasta el estiramiento completo detrás del cuerpo.'],
+    mistakes: ['Llevar el codo hacia adelante.', 'Girar el torso.'],
+    swap: 'Curl inclinado con mancuernas.',
+    tip: 'El estiramiento atrás es el punto. Si no lo sentís, das un paso más adelante.',
+  },
+  {
+    id: 'overhead-cable-triceps-extension', name: 'Extensión de tríceps sobre la cabeza en polea',
+    aliases: ['Overhead Cable Triceps Extension', 'Overhead Triceps Extension', 'Extensión tras nuca', 'Press francés en polea'],
+    primary: ['triceps'], secondary: [], pattern: 'Extensión de codo (hombro flexionado)', equipment: 'Polea con cuerda',
+    setup: ['De espaldas a la polea, cuerda detrás de la cabeza.', 'Un pie adelante, torso inclinado, codos arriba junto a la cabeza.'],
+    steps: ['Extendé los codos hacia adelante y arriba.', 'Mantené los codos en su lugar.', 'Volvé hasta sentir el estiramiento fuerte del tríceps.'],
+    mistakes: ['Abrir los codos hacia los lados.', 'Recortar el estiramiento.'],
+    swap: 'Press francés con barra Z o mancuerna sobre la cabeza.',
+    tip: 'La cabeza larga del tríceps vive aquí. Visitala seguido.',
+  },
+  {
+    id: 'modified-zottman-curl', name: 'Curl Zottman modificado',
+    aliases: ['Modified Zottman Curl', 'Zottman Curl', 'Curl Zottman'],
+    primary: ['braquiorradial', 'braquial'], secondary: ['biceps', 'antebrazo'], pattern: 'Flexión de codo', equipment: 'Mancuernas',
+    setup: ['De pie con una mancuerna en cada mano.', 'Palmas hacia arriba para subir.'],
+    steps: ['Subí con las palmas hacia arriba como un curl normal.', 'Arriba, girá las palmas hacia abajo.', 'Bajá lento con agarre prono y girá de nuevo abajo.'],
+    mistakes: ['Bajar rápido: la bajada prona es la parte importante.', 'Balancear el cuerpo.'],
+    swap: 'Curl invertido con barra Z.',
+    tip: 'Subís fácil, bajás difícil. Como los lunes.',
+  },
+  {
+    id: 'cable-triceps-kickback', name: 'Patada de tríceps en polea',
+    aliases: ['Cable Triceps Kickback', 'Triceps Kickback', 'Patada de tríceps'],
+    primary: ['triceps'], secondary: [], pattern: 'Extensión de codo (hombro extendido)', equipment: 'Polea baja',
+    setup: ['Torso inclinado hacia adelante, cable en una mano desde la polea baja.', 'Brazo pegado al cuerpo, paralelo al torso.'],
+    steps: ['Extendé el codo hacia atrás hasta quedar recto.', 'Apretá el tríceps 1 segundo.', 'Volvé lento sin mover el hombro.'],
+    mistakes: ['Mover el brazo en lugar del antebrazo.', 'Peso excesivo.'],
+    swap: 'Patada con mancuerna.',
+    tip: 'Poco peso, mucha contracción. El ego se queda en la casa.',
+  },
+  {
+    id: 'db-wrist-curl', name: 'Curl de muñeca con mancuerna',
+    aliases: ['DB Wrist Curl', 'Wrist Curl', 'Curl de muñeca'],
+    primary: ['flexoresMuneca'], secondary: [], pattern: 'Flexión de muñeca', equipment: 'Mancuernas y banco',
+    setup: ['Antebrazos apoyados en los muslos o en un banco, palmas hacia arriba.', 'Muñecas fuera del borde.'],
+    steps: ['Dejá que la mancuerna ruede hasta los dedos.', 'Cerrá la mano y subí la muñeca todo lo posible.', 'Bajá lento.'],
+    mistakes: ['Mover el antebrazo.', 'Recorrido corto.'],
+    swap: 'Curl de muñeca con barra o en polea.',
+    tip: 'Antebrazos fuertes: el accesorio que nadie te pide pero todos miran.',
+  },
+  {
+    id: 'db-wrist-extension', name: 'Extensión de muñeca con mancuerna',
+    aliases: ['DB Wrist Extension', 'Wrist Extension', 'Extensión de muñeca'],
+    primary: ['extensoresMuneca'], secondary: [], pattern: 'Extensión de muñeca', equipment: 'Mancuernas y banco',
+    setup: ['Antebrazos apoyados, palmas hacia abajo.', 'Muñecas fuera del borde.'],
+    steps: ['Subí el dorso de la mano lo más alto posible.', 'Pausa breve.', 'Bajá lento hasta el estiramiento.'],
+    mistakes: ['Usar mucho peso y mover el codo.', 'Bajar sin control.'],
+    swap: 'Curl invertido con barra Z.',
+    tip: 'Peso ligero. Esto no es para impresionar a nadie, es para tus codos.',
+  },
+  {
+    id: 'alternating-db-curl', name: 'Curl alterno con mancuernas',
+    aliases: ['Alternating DB Curl', 'Alternating Dumbbell Curl', 'Curl alterno', 'Curl con mancuernas'],
+    primary: ['biceps'], secondary: ['braquial'], pattern: 'Flexión de codo', equipment: 'Mancuernas',
+    setup: ['De pie, mancuernas a los lados con palmas hacia el cuerpo.', 'Codos junto al torso.'],
+    steps: ['Subí una mancuerna girando la palma hacia arriba.', 'Apretá arriba y bajá lento.', 'Alterná brazos.'],
+    mistakes: ['Balancear el torso.', 'Adelantar el codo para subir.'],
+    swap: 'Curl con barra o en polea.',
+    tip: 'Un brazo descansa mientras el otro sufre. Justo, ¿no?',
+  },
+  {
+    id: 'machine-lateral-raise', name: 'Elevación lateral en máquina',
+    aliases: ['Machine Lateral Raise', 'Lateral Raise Machine', 'Elevaciones laterales', 'Elevación lateral'],
+    primary: ['deltLat'], secondary: [], pattern: 'Abducción de hombro', equipment: 'Máquina',
+    setup: ['Asiento con el hombro alineado al eje de la máquina.', 'Cojines por fuera de los codos o antebrazos.'],
+    steps: ['Subí los brazos hacia los lados hasta la altura del hombro.', 'Pausa breve.', 'Bajá lento sin dejar que el peso descanse.'],
+    mistakes: ['Encoger los hombros.', 'Impulsarse con el torso.'],
+    swap: 'Elevación lateral con mancuernas o en polea.',
+    tip: 'Hombros redondos se hacen con paciencia y series aburridas. Esta es una.',
+  },
+  {
+    id: 'dead-hang', name: 'Colgado en barra',
+    aliases: ['Dead Hang', 'Colgarse', 'Colgado'],
+    primary: ['antebrazo'], secondary: ['dorsal'], pattern: 'Agarre isométrico', equipment: 'Barra de dominadas',
+    setup: ['Agarre a lo ancho de hombros.', 'Pies despegados del piso.'],
+    steps: ['Colgate con los brazos rectos.', 'Respirá tranquilo y aguantá el tiempo objetivo.', 'Bajá con cuidado.'],
+    mistakes: ['Soltar de golpe.', 'Hombros totalmente sueltos si te molestan (activalos un poco).'],
+    swap: 'Farmer walk o sostener mancuernas pesadas.',
+    tip: 'Es literalmente colgar. Y aun así te va a costar. La vida es así.',
+  },
+];
+
+// ─── Búsqueda ─────────────────────────────────────────────
+function slug(s = '') {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+const INDEX = (() => {
+  const map = new Map();
+  for (const ex of EXERCISES) {
+    for (const key of [ex.id, ex.name, ...(ex.aliases || [])]) map.set(slug(key), ex);
+  }
+  return map;
+})();
+
+/** Encuentra la guía para un nombre de ejercicio (exacto por alias, luego por coincidencia parcial más larga). */
+export function findExerciseGuide(name) {
+  const key = slug(name);
+  if (!key) return null;
+  if (INDEX.has(key)) return INDEX.get(key);
+  let best = null, bestLen = 0;
+  for (const [k, ex] of INDEX) {
+    if (k.length >= 5 && (key.includes(k) || k.includes(key)) && k.length > bestLen) { best = ex; bestLen = k.length; }
+  }
+  return best;
+}
+
+export function muscleLabel(key) { return MUSCLES[key] || key; }

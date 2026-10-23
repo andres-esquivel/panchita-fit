@@ -10,6 +10,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getLogs, saveLog, saveLogDraft, clearActiveSessionDraft, getWeightUnit, getRestTimerSeconds, saveRestTimerSeconds, shareRoutine } from '../storage';
 import Panchita from '../components/Panchita';
 import ConfirmModal from '../components/ConfirmModal';
+import ExerciseGuideSheet from '../components/ExerciseGuideSheet';
+import { findExerciseGuide } from '../exercises/library';
 import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDots, IconShare, IconTimer, IconWarning } from '../components/icons';
 import {
   num, parseRir, toKg, fromKg, formatWeight, exerciseIdFromName,
@@ -166,6 +168,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   const [addExSearch, setAddExSearch]       = useState('');
 
   const [showMenu, setShowMenu] = useState(false);
+  const [guideFor, setGuideFor] = useState(null); // nombre del ejercicio cuya guía está abierta
 
   // Compartir
   const [showShareModal, setShowShareModal] = useState(false);
@@ -804,6 +807,14 @@ ${shareCode}` });
         )}
       </View>
 
+      <ExerciseGuideSheet
+        visible={guideFor !== null}
+        exerciseName={guideFor || ''}
+        guide={guideFor !== null ? findExerciseGuide(guideFor) : null}
+        onClose={()=>setGuideFor(null)}
+        colors={colors}
+      />
+
       {/* Modal completado */}
       <Modal visible={showCompletion} transparent animationType="fade">
         <View style={s.modalOverlay}>
@@ -954,6 +965,14 @@ ${shareCode}` });
             {/* Header ejercicio */}
             <View style={s.exHeader}>
               <Text style={[s.exName,{flex:1,marginBottom:0}]}>{ex.name||`Ejercicio ${exIdx+1}`}</Text>
+              <TouchableOpacity
+                style={[s.guideBtn, !findExerciseGuide(ex.name) && s.guideBtnSoft]}
+                onPress={()=>setGuideFor(ex.name||'')}
+                activeOpacity={0.7}
+                accessibilityLabel="Ver guía del ejercicio"
+              >
+                <Text style={s.guideBtnTxt}>i</Text>
+              </TouchableOpacity>
               <View style={s.exUnitToggle}>
                 {['kg','lb'].map(u=>(
                   <TouchableOpacity key={u} style={[s.exUnitBtn,(ex.unit||weightUnit)===u&&s.exUnitBtnActive]} onPress={()=>setExUnit(exIdx,u)}>
@@ -1199,6 +1218,9 @@ function createStyles(colors) {
     setInput: { height:52, backgroundColor:colors.bg, borderRadius:RADIUS.sm, borderWidth:1.5, borderColor:colors.purpleDim, fontSize:22, fontWeight:'700', color:colors.white, textAlign:'center' },
     setInputDone: { opacity:0.35, borderColor:'transparent' },
     setAntLabel: { fontSize:11, color:'#666', marginTop:4, textAlign:'center' },
+    guideBtn: { width:30, height:30, borderRadius:15, borderWidth:1.5, borderColor:colors.purpleLight, alignItems:'center', justifyContent:'center', marginRight:6 },
+    guideBtnSoft: { borderColor:colors.purpleDim },
+    guideBtnTxt: { fontSize:14, fontWeight:'800', color:colors.purpleLight, fontStyle:'italic' },
     rirRow: { flexDirection:'row', alignItems:'center', gap:6, marginTop:10 },
     rirLabel: { fontSize:10, fontWeight:'700', color:colors.gray, letterSpacing:1, marginRight:2 },
     rirChip: { flex:1, minHeight:36, borderRadius:RADIUS.sm, borderWidth:1, borderColor:colors.purpleDim, alignItems:'center', justifyContent:'center', backgroundColor:colors.bg },

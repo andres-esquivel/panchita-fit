@@ -7,7 +7,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "export:web": "expo export --platform web && node scripts/patch-pwa.js",
-    "test:strength": "node strength/engine.test.mjs && node strength/dashboard.test.mjs"
+    "test:strength": "node strength/engine.test.mjs && node strength/dashboard.test.mjs && node exercises/library.test.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
