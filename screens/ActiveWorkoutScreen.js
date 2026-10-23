@@ -14,6 +14,7 @@ import { IconArrowDown, IconArrowUp, IconBack, IconCheck, IconClose, IconMenuDot
 import {
   num, parseRir, toKg, fromKg, formatWeight, exerciseIdFromName,
   fitExerciseModel, exercisePointsFromLogs, suggestSet, warmupWeights,
+  bestE1rmByExercise, isNewRecord, estimate1RM,
 } from '../strength/engine';
 
 const TODAY = new Date().toISOString().split('T')[0];
@@ -53,6 +54,19 @@ const AUTOSAVE_PHRASES = [
   'Guardado. No confío en el WiFi pero bueno.',
   'Datos a salvo. Por ahora.',
   'Guardé todo. Seguí levantando.',
+];
+
+const RECORD_PHRASES = [
+  '¡Récord! Tu 1RM estimado nunca había estado tan alto.',
+  'Nuevo récord. Voy a fingir que no estoy impresionada.',
+  '¡Eso es un PR! Anotado para presumir.',
+  'Récord personal. ¿Quién sos y qué hiciste con el de antes?',
+];
+
+const FAILURE_PHRASES = [
+  'RIR 0. Al fallo. Respeto.',
+  'Al fallo, ¿eh? Descansá bien que el siguiente va a doler.',
+  'Cero reps en reserva. Eso es dejarlo todo.',
 ];
 
 const REST_END_PHRASES = [
@@ -170,6 +184,8 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
   const lastSavedLogRef  = useRef('');
   const restActiveRef    = useRef(false); // true while a timer is running
   const lastDraftLogRef  = useRef('');
+  const bestE1rmRef      = useRef({}); // mejor 1RM estimado previo por ejercicio (kg)
+  const weightUnitRef    = useRef('kg');
 
   const formatRestTime = useCallback((seconds) => {
     const safe = Math.max(0, seconds || 0);
@@ -189,6 +205,8 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
     setRestLeft(fallback);
     saveRestTimerSeconds(fallback).catch(() => {});
   }, []);
+
+  useEffect(()=>{ weightUnitRef.current = weightUnit; },[weightUnit]);
 
   // Cargar preferencias una vez
   useEffect(()=>{
@@ -328,6 +346,7 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
     setCompleted(false);
     setLastLog(null);
     setHistoryLogs([]);
+    bestE1rmRef.current = {};
     lastSavedLogRef.current = '';
     lastDraftLogRef.current = '';
     setAutoSaveState('idle');
@@ -338,7 +357,9 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         .filter(l=>l.workoutId===workout.id && l.completed && l.date < targetDate)
         .sort((a,b)=>b.date.localeCompare(a.date))[0] || null;
       setLastLog(last);
-      setHistoryLogs(logs.filter(l=>l.completed && l.date < targetDate));
+      const history = logs.filter(l=>l.completed && l.date < targetDate);
+      setHistoryLogs(history);
+      bestE1rmRef.current = bestE1rmByExercise(history);
 
       const existingLog = logs.find(l=>l.date===targetDate && l.workoutId===workout.id);
       if (existingLog) {
@@ -439,11 +460,22 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         }),
       };
       if (!wasDone) {
-        const phrase = SET_PHRASES[Math.floor(Math.random()*SET_PHRASES.length)];
-        setReactionPhrase(phrase);
+        // Récord > fallo > frase normal
+        const ex = prev.exercises[exIdx];
+        const unit = ex.unit || weightUnitRef.current;
+        const id = exIdOf(ex);
+        const wKg = toKg(set.weight, unit), reps = num(set.reps), rir = parseRir(set.rir);
+        let pool = SET_PHRASES, duration = 2500;
+        if (isNewRecord(bestE1rmRef.current[id]?.kg, wKg, reps, rir)) {
+          pool = RECORD_PHRASES; duration = 4000;
+          bestE1rmRef.current = { ...bestE1rmRef.current, [id]: { kg: estimate1RM(wKg, reps, rir), name: ex.name } };
+        } else if (rir === 0) {
+          pool = FAILURE_PHRASES;
+        }
+        setReactionPhrase(pool[Math.floor(Math.random()*pool.length)]);
         setPanchitaReaction(true);
         if (restTimerSeconds > 0) startRestTimer(restTimerSeconds);
-        setTimeout(()=>setPanchitaReaction(false),2500);
+        setTimeout(()=>setPanchitaReaction(false),duration);
       }
       return updated;
     });
@@ -469,6 +501,11 @@ export default function ActiveWorkoutScreen({ routine, sessionDate = TODAY, isBa
         sets: ex.sets.map((st,si)=>{
           if (si!==setIdx) return st;
           if (st.rir===value) { const { rir, ...rest } = st; return rest; }
+          if (value===0 && st.done) {
+            setReactionPhrase(FAILURE_PHRASES[Math.floor(Math.random()*FAILURE_PHRASES.length)]);
+            setPanchitaReaction(true);
+            setTimeout(()=>setPanchitaReaction(false),2500);
+          }
           return { ...st, rir:value };
         }),
       }),
