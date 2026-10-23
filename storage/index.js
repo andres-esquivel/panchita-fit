@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { exerciseIdFromName, parseRir, e1rmSeries, weeklyStrengthSummary } from '../strength/engine';
+import { normalizeTileConfig } from '../strength/dashboard';
 
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -820,6 +821,35 @@ export async function saveWeightUnit(unit) {
   } catch (e) {
     console.warn('saveWeightUnit local failed:', e);
   }
+}
+
+// ─── Dashboard (tarjetas visibles y orden) ─────────────────
+// Local por usuario + copia en Firestore (settings/preferences.dashboardTiles).
+export async function getDashboardConfig() {
+  try {
+    const raw = await AsyncStorage.getItem(localKey('dashboardTiles'));
+    if (raw) return normalizeTileConfig(JSON.parse(raw));
+  } catch {}
+  try {
+    const snap = await withTimeout(getDoc(userDoc('settings/preferences')), 5000, 'getDashboardConfig');
+    const tiles = snap.exists() ? snap.data()?.dashboardTiles : null;
+    if (tiles) {
+      await AsyncStorage.setItem(localKey('dashboardTiles'), JSON.stringify(tiles));
+      return normalizeTileConfig(tiles);
+    }
+  } catch {}
+  return normalizeTileConfig(null);
+}
+
+export async function saveDashboardConfig(config) {
+  const normalized = normalizeTileConfig(config);
+  try { await AsyncStorage.setItem(localKey('dashboardTiles'), JSON.stringify(normalized)); }
+  catch (e) { console.warn('saveDashboardConfig local failed:', e); }
+  withTimeout(
+    setDoc(userDoc('settings/preferences'), { dashboardTiles: normalized }, { merge: true }),
+    5000, 'saveDashboardConfig'
+  ).catch(e => console.warn('saveDashboardConfig remote failed:', e));
+  return normalized;
 }
 
 // ─── Timer de descanso ─────────────────────────────────────
